@@ -20,15 +20,57 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# May need to add this back for import to work
-# external_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'external', 'Metric3D'))
-# if external_path not in sys.path:
-#     sys.path.append(external_path)
+try:
+    import cupy as cp
+    HAS_GPU = True
+    mempool = cp.cuda.MemoryPool()
+    cp.cuda.set_allocator(mempool.malloc)
+except ImportError:
+    HAS_GPU = False
+    cp = None
+
+# ---- GPU-only bilinear resize (CHW or HWC) ----
+def resize_bilinear_hwc(img_cu: cp.ndarray, out_h: int, out_w: int) -> cp.ndarray:
+    """Pure CuPy bilinear resize for HWC float32 images"""
+    in_h, in_w, C = img_cu.shape
+    out = cp.empty((out_h, out_w, C), dtype=cp.float32)
+
+    scale_y = in_h / out_h
+    scale_x = in_w / out_w
+
+    oy = cp.arange(out_h, dtype=cp.float32)
+    ox = cp.arange(out_w, dtype=cp.float32)
+    yy, xx = cp.meshgrid(oy, ox, indexing="ij")
+    yy = yy * scale_y
+    xx = xx * scale_x
+
+    y0 = cp.floor(yy).astype(cp.int32)
+    x0 = cp.floor(xx).astype(cp.int32)
+    y1 = cp.clip(y0 + 1, 0, in_h - 1)
+    x1 = cp.clip(x0 + 1, 0, in_w - 1)
+
+    wy = yy - y0
+    wx = xx - x0
+
+    wa = (1 - wy) * (1 - wx)
+    wb = (1 - wy) * wx
+    wc = wy * (1 - wx)
+    wd = wy * wx
+
+    for c in range(C):
+        Ia = img_cu[y0, x0, c]
+        Ib = img_cu[y0, x1, c]
+        Ic = img_cu[y1, x0, c]
+        Id = img_cu[y1, x1, c]
+        out[..., c] = wa * Ia + wb * Ib + wc * Ic + wd * Id
+
+    return out
 
 
 class Metric3D:
-    def __init__(self, gt_depth_scale=256.0, camera_intrinsics=None, provider='auto', onnx_model_path='onnx/metric3d_vit_small.onnx'):
-        self.input_size = (616, 1064)  # for vit model; adjust if needed
+    def __init__(self, gt_depth_scale=256.0, camera_intrinsics=None,
+                 provider='auto', onnx_model_path='onnx/metric3d_vit_small.onnx'):
+        self.input_size = (616, 1064)  # (H, W)
         self.gt_depth_scale = gt_depth_scale
         self.intrinsic = camera_intrinsics or [707.0493, 707.0493, 604.0814, 180.5066]
         self.intrinsic_scaled = None
@@ -36,53 +78,33 @@ class Metric3D:
         self.rgb_origin = None
         self.onnx_model_path = onnx_model_path
 
-        print(f"############################################# Using model: {onnx_model_path} ###########################################################")
-        # Provider selection logic. For now, I'm assuming we always resize. But we could offload this to TensorRT if we want.
+        print(f"### Using model: {onnx_model_path} ###")
+
+        # ---- ORT provider config ----
         MIN_SHAPE = "image:1x3x616x1064"
         OPT_SHAPE = "image:1x3x616x1064"
         MAX_SHAPE = "image:1x3x616x1064"
 
         tensorrt_opts = {
             "device_id": 0,
-
-            # Memory/tactics
-            "trt_max_workspace_size": 600 * 1024**2,        # 512MB
-            "trt_builder_optimization_level": 4,            # 0..5, higher = more aggressive build/tactics
-            "trt_auxiliary_streams": 1,                     # small benefit on some nets; keep modest on Nano
-
-            # Precision
-            "trt_fp16_enable": True,                        # Nano lacks tensor cores but can still benefit from FP16 in some ops
-            "trt_int8_enable": False,                       # set True only if you have a Q/DQ model or a proper calibration table
-
-            # Partitioning / conversion heuristics
+            "trt_max_workspace_size": 600 * 1024**2,
+            "trt_builder_optimization_level": 4,
+            "trt_auxiliary_streams": 1,
+            "trt_fp16_enable": True,
+            "trt_int8_enable": False,
             "trt_max_partition_iterations": 1000,
             "trt_min_subgraph_size": 1,
             "trt_build_heuristics_enable": True,
-
-            # Keep LayerNorm stable if needed (accuracy safeguard, can be False for speed)
             "trt_layer_norm_fp32_fallback": True,
-
-            # Context memory sharing to lower RAM requirements
             "trt_context_memory_sharing_enable": True,
-            # CUDA graph inside TRT to lower launch overhead
             "trt_cuda_graph_enable": True,
-
-            # Engine cache (skip rebuilds) + timing cache (faster rebuilds)
             "trt_engine_cache_enable": True,
             "trt_engine_cache_path": "./trt_engines",
             "trt_timing_cache_enable": True,
             "trt_timing_cache_path": "./trt_timing",
-            # If you ship timing cache across devices of same CC, you can try:
-            # "trt_force_timing_cache": True,
-
-            # Dynamic shape profiles
             "trt_profile_min_shapes": MIN_SHAPE,
             "trt_profile_opt_shapes": OPT_SHAPE,
             "trt_profile_max_shapes": MAX_SHAPE,
-
-            # Plugins or exclusions (optional)
-            # "trt_extra_plugin_lib_paths": "/path/to/libmytrtplugin.so",
-            # "trt_op_types_to_exclude": "NonMaxSuppression"  # example
         }
 
         cuda_opts = {
@@ -94,9 +116,7 @@ class Metric3D:
         }
 
         self.contains_io_binding = False
-
         if provider == 'auto':
-            # Try CUDA, then TensorRT, then CPU
             available_providers = ort.get_available_providers()
             if 'TensorrtExecutionProvider' in available_providers:
                 providers = [
@@ -117,25 +137,16 @@ class Metric3D:
             self.contains_io_binding = True
         else:
             providers = ['CPUExecutionProvider']
-        
-        print(f"############################################# Using providers: {providers} ###########################################################")
-        
+
+        print(f"### Using providers: {providers} ###")
+
         self.session = ort.InferenceSession(onnx_model_path, providers=providers)
         if self.contains_io_binding:
             io = self.session.io_binding()
-            io.bind_output(name="pred_depth", device_type="cuda", device_id=0)  # keep output on GPU
+            io.bind_output(name="pred_depth", device_type="cuda", device_id=0)
             self.io_binding = io
-        
-    """
-    Input: Single image in RGB format
-    Output: Depth map
-    """
 
     def update_intrinsic(self, intrinsic):
-        """
-        Update the intrinsic parameters dynamically.
-        Ensure that the input intrinsic is valid.
-        """
         if len(intrinsic) != 4:
             raise ValueError("Intrinsic must be a list or tuple with 4 values: [fx, fy, cx, cy]")
         self.intrinsic = intrinsic
@@ -144,62 +155,70 @@ class Metric3D:
     def prepare_input(self, rgb_image):
         h, w = rgb_image.shape[:2]
         scale = min(self.input_size[0] / h, self.input_size[1] / w)
-        rgb = cv2.resize(
-            rgb_image, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_LINEAR
-        )
-        # Scale intrinsics
-        self.intrinsic_scaled = [
-            self.intrinsic[0] * scale,
-            self.intrinsic[1] * scale,
-            self.intrinsic[2] * scale,
-            self.intrinsic[3] * scale,
-        ]
-        # padding to input_size
-        padding = [123.675, 116.28, 103.53]
-        h, w = rgb.shape[:2]
-        pad_h = self.input_size[0] - h
-        pad_w = self.input_size[1] - w
-        pad_h_half = pad_h // 2
-        pad_w_half = pad_w // 2
-        rgb = cv2.copyMakeBorder(
-            rgb,
-            pad_h_half,
-            pad_h - pad_h_half,
-            pad_w_half,
-            pad_w - pad_w_half,
-            cv2.BORDER_CONSTANT,
-            value=padding,
-        )
-        self.pad_info = [pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half]
-        mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)[:, None, None]
-        std = np.array([58.395, 57.12, 57.375], dtype=np.float32)[:, None, None]
+        new_h, new_w = int(h * scale), int(w * scale)
 
-        # HWC -> CHW, normalize in one go
-        chw = np.transpose(rgb, (2, 0, 1)).astype(np.float32)
-        chw = (chw - mean) / std
+        if HAS_GPU and isinstance(rgb_image, cp.ndarray):
+            # ---- GPU path ----
+            rgb = resize_bilinear_hwc(rgb_image.astype(cp.float32), new_h, new_w)
+
+            pad_h = self.input_size[0] - new_h
+            pad_w = self.input_size[1] - new_w
+            pad_h_half, pad_w_half = pad_h // 2, pad_w // 2
+            padding = ((pad_h_half, pad_h - pad_h_half),
+                       (pad_w_half, pad_w - pad_w_half),
+                       (0, 0))
+
+            pad_val = [123.675, 116.28, 103.53]
+            pads = ((pad_h_half, pad_h - pad_h_half),
+                    (pad_w_half, pad_w - pad_w_half))
+
+            rgb_padded = []
+            for c in range(3):
+                ch = cp.pad(rgb[..., c], pads, mode="constant", constant_values=pad_val[c])
+                rgb_padded.append(ch)
+            rgb = cp.stack(rgb_padded, axis=-1)
+
+            mean = cp.array([123.675, 116.28, 103.53], dtype=cp.float32)[:, None, None]
+            std = cp.array([58.395, 57.12, 57.375], dtype=cp.float32)[:, None, None]
+            chw = rgb.transpose(2, 0, 1)
+            chw = (chw - mean) / std
+            x_np = cp.asnumpy(chw[None])  # ORT still needs numpy unless binding device ptr
+        else:
+            # ---- CPU path ----
+            rgb = cv2.resize(rgb_image, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+            pad_h = self.input_size[0] - new_h
+            pad_w = self.input_size[1] - new_w
+            pad_h_half, pad_w_half = pad_h // 2, pad_w // 2
+            rgb = cv2.copyMakeBorder(rgb, pad_h_half, pad_h - pad_h_half,
+                                     pad_w_half, pad_w - pad_w_half,
+                                     cv2.BORDER_CONSTANT, value=[123.675, 116.28, 103.53])
+            mean = np.array([123.675, 116.28, 103.53], dtype=np.float32)[:, None, None]
+            std = np.array([58.395, 57.12, 57.375], dtype=np.float32)[:, None, None]
+            chw = np.transpose(rgb, (2, 0, 1)).astype(np.float32)
+            chw = (chw - mean) / std
+            x_np = np.ascontiguousarray(chw[None], dtype=np.float32)
+
+        self.intrinsic_scaled = [self.intrinsic[0] * scale,
+                                 self.intrinsic[1] * scale,
+                                 self.intrinsic[2] * scale,
+                                 self.intrinsic[3] * scale]
+        self.pad_info = [pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half]
 
         if self.contains_io_binding:
-            # This allocates/copies to device each frame:
-            x_dev = ort.OrtValue.ortvalue_from_numpy(chw[None], 'cuda', 0)
-
-            # Bind by pointer (avoids an extra copy inside ORT)
+            x_dev = ort.OrtValue.ortvalue_from_numpy(x_np, 'cuda', 0)
             self.io_binding.bind_input(
                 name='image', device_type='cuda', device_id=0,
                 element_type=np.float32, shape=x_dev.shape(), buffer_ptr=x_dev.data_ptr()
             )
             return self.io_binding, rgb_image.shape[:2]
         else:
-            onnx_input = {
-                "image": np.ascontiguousarray(chw[None], dtype=np.float32) # shape: (1, 3, H, W)
-            }
-            return onnx_input, rgb_image.shape[:2]
+            return {"image": x_np}, rgb_image.shape[:2]
 
     def infer_depth(self, img, debug=False):
         if debug:
             print(f"Input image: {img}")
         try:
             if isinstance(img, str):
-                logger.debug(f"Image type string: {type(img)}")
                 self.rgb_origin = cv2.imread(img)[:, :, ::-1]
             else:
                 self.rgb_origin = img
@@ -214,31 +233,27 @@ class Metric3D:
             depth = out_dev.numpy().squeeze()
         else:
             outputs = self.session.run(None, onnx_input)
-            depth = outputs[0].squeeze()  # [H, W]
+            depth = outputs[0].squeeze()
 
         # Remove padding
         pad_info = self.pad_info
-        depth = depth[
-            pad_info[0] : self.input_size[0] - pad_info[1],
-            pad_info[2] : self.input_size[1] - pad_info[3],
-        ]
-        # Resize to original image size
-        depth = cv2.resize(
-            depth, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR
-        )
+        depth = depth[pad_info[0]: self.input_size[0] - pad_info[1],
+                      pad_info[2]: self.input_size[1] - pad_info[3]]
 
-        # Convert canonical depth to metric using scaled intrinsics
+        if HAS_GPU and isinstance(depth, cp.ndarray):
+            depth = resize_bilinear_hwc(depth[..., None], original_shape[0], original_shape[1])[..., 0]
+            depth = cp.asnumpy(depth)
+        else:
+            depth = cv2.resize(depth, (original_shape[1], original_shape[0]), interpolation=cv2.INTER_LINEAR)
+
         if self.intrinsic_scaled is not None:
             canonical_to_real_scale = self.intrinsic_scaled[0] / 1000.0
             depth = depth * canonical_to_real_scale
 
-        # Return depth as float32 numpy array in meters (matching old torch version)
         return depth.astype(np.float32)
 
     def save_depth(self, pred_depth):
-        # Save the depth map to a file
         if isinstance(pred_depth, np.ndarray):
-            # Scale for 16-bit save
             pred_depth_scaled = (pred_depth * self.gt_depth_scale).astype(np.uint16)
         elif isinstance(pred_depth, Image.Image):
             pred_depth_scaled = np.array(pred_depth)
@@ -260,8 +275,8 @@ class Metric3D:
             mask = gt_depth > 1e-8
             abs_rel_err = (np.abs(pred_depth[mask] - gt_depth[mask]) / gt_depth[mask]).mean()
             logger.info(f"abs_rel_err: {abs_rel_err}")
-    
+
     def cleanup(self):
-        """Clean up ONNX session resources."""
         if hasattr(self, 'session') and self.session:
             self.session = None
+

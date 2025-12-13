@@ -16,7 +16,7 @@
 
 import time
 import threading
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -28,6 +28,8 @@ from dimos_lcm.sensor_msgs import CameraInfo
 from dimos.msgs.std_msgs import Header
 from dimos.protocol.tf import TF
 from dimos.utils.logging_config import setup_logger
+from dimos.utils.ipc_factory import make_frame_channel, CPU_IPC_Factory, CUDA_IPC_Factory
+from dimos.utils.multirate import MultiRateProcessor
 from dimos.perception.common.utils import colorize_depth
 
 logger = setup_logger(__name__)
@@ -102,6 +104,7 @@ class UnitreeCameraModule(Module):
         # Threading
         self._processing_thread: Optional[threading.Thread] = None
         self._stop_processing = threading.Event()
+        self._multirateprocessor = MultiRateProcessor(target_fps_by_model={"depth": (15, self._process_depth)})
 
         logger.info(f"UnitreeCameraModule initialized with intrinsics: {camera_intrinsics}")
 
@@ -164,13 +167,15 @@ class UnitreeCameraModule(Module):
             # Process latest frame if available
             if self._latest_frame is not None:
                 try:
+                    print("Hitting multirate processor")
                     msg = self._latest_frame
                     self._latest_frame = None  # Clear to avoid reprocessing
+                    self._multirateprocessor.on_frame(msg)
                     # Store for publishing
-                    self._last_image = msg.data
-                    self._last_timestamp = msg.ts if msg.ts else time.time()
+                    #self._last_image = msg.data
+                    #self._last_timestamp = msg.ts if msg.ts else time.time()
                     # Process depth
-                    self._process_depth(self._last_image)
+                    #self._process_depth(self._last_image)
 
                 except Exception as e:
                     logger.error(f"Error in main processing loop: {e}", exc_info=True)
