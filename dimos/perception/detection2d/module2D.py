@@ -48,7 +48,7 @@ class Detector(ABC):
 @dataclass
 class Config:
     detector: Optional[Callable[[Any], Detector]] = Yolo2DDetector
-    max_freq: float = 0.5  # hz
+    max_freq: float = 10  # hz
     vlmodel: VlModel = QwenVlModel
 
 
@@ -60,10 +60,6 @@ class Detection2DModule(Module):
 
     detections: Out[Detection2DArray] = None  # type: ignore
     annotations: Out[ImageAnnotations] = None  # type: ignore
-
-    detected_image_0: Out[Image] = None  # type: ignore
-    detected_image_1: Out[Image] = None  # type: ignore
-    detected_image_2: Out[Image] = None  # type: ignore
 
     detected_image_0: Out[Image] = None  # type: ignore
     detected_image_1: Out[Image] = None  # type: ignore
