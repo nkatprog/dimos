@@ -16,7 +16,6 @@ import pytest
 import torch
 
 from dimos.msgs.sensor_msgs import Image
-from dimos.perception.detection.reid.embedding_id_system import EmbeddingIDSystem
 from dimos.utils.data import get_data
 
 
@@ -33,6 +32,8 @@ def mobileclip_model():
 
 @pytest.fixture
 def track_associator(mobileclip_model):
+    from dimos.perception.detection.reid.embedding_id_system import EmbeddingIDSystem
+
     """Create fresh EmbeddingIDSystem for each test."""
     return EmbeddingIDSystem(model=lambda: mobileclip_model, similarity_threshold=0.75)
 

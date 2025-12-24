@@ -21,10 +21,4 @@ try:
 except ImportError:
     pass
 
-# Optional: TorchReID support
-try:
-    from dimos.models.embedding.treid import TorchReIDEmbedding, TorchReIDModel
-
-    __all__.extend(["TorchReIDEmbedding", "TorchReIDModel"])
-except ImportError:
-    pass
+from dimos.models.embedding.treid import TorchReIDEmbedding, TorchReIDModel

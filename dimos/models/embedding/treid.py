@@ -21,8 +21,6 @@ from torchreid import utils as torchreid_utils
 from dimos.models.embedding.base import Embedding, EmbeddingModel
 from dimos.msgs.sensor_msgs import Image
 
-_CUDA_INITIALIZED = False
-
 
 class TorchReIDEmbedding(Embedding): ...
 
@@ -46,10 +44,6 @@ class TorchReIDModel(EmbeddingModel[TorchReIDEmbedding]):
             device: Device to run on (cuda/cpu), auto-detects if None
             normalize: Whether to L2 normalize embeddings
         """
-        if not TORCHREID_AVAILABLE:
-            raise ImportError(
-                "torchreid is required for TorchReIDModel. Install it with: pip install torchreid"
-            )
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.normalize = normalize
@@ -106,13 +100,11 @@ class TorchReIDModel(EmbeddingModel[TorchReIDEmbedding]):
         """Warmup the model with a dummy forward pass."""
         # WORKAROUND: TorchReID can fail with CUBLAS errors when it's the first model to use CUDA.
         # Initialize CUDA context with a dummy operation. This only needs to happen once per process.
-        global _CUDA_INITIALIZED
-        if self.device == "cuda" and not _CUDA_INITIALIZED:
+        if self.device == "cuda":
             try:
                 # Initialize CUDA with a small matmul operation to setup cuBLAS properly
                 _ = torch.zeros(1, 1, device="cuda") @ torch.zeros(1, 1, device="cuda")
                 torch.cuda.synchronize()
-                _CUDA_INITIALIZED = True
             except Exception:
                 # If initialization fails, continue anyway - the warmup might still work
                 pass

@@ -34,7 +34,7 @@ class EmbeddingIDSystem(IDSystem):
         self,
         model: Callable[[], EmbeddingModel[Embedding]],
         padding: int = 0,
-        similarity_threshold: float = 0.63,
+        similarity_threshold: float = 0.68,
         comparison_mode: Literal["max", "mean", "top_k_mean"] = "top_k_mean",
         top_k: int = 30,
         max_embeddings_per_track: int = 500,
