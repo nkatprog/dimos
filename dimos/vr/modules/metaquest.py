@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 from reactivex.disposable import Disposable
 
+from dimos.constants import DIMOS_PROJECT_ROOT
 from dimos.core import Module, Out, rpc
 from dimos.msgs.geometry_msgs import PoseStamped
 from dimos.msgs.sensor_msgs import Image
@@ -228,11 +229,13 @@ class MetaQuestModule(Module):
             logger.error(f"Error publishing controller data: {e}")
 
     def _get_ssl_config(self):
-        cert_path = self.ssl_cert or "dimos/vr/certificates/cert.pem"
-        key_path = self.ssl_key or "dimos/vr/certificates/key.pem"
-
-        cert_file = Path(cert_path)
-        key_file = Path(key_path)
+        if self.ssl_cert and self.ssl_key:
+            cert_file = Path(self.ssl_cert)
+            key_file = Path(self.ssl_key)
+        else:
+            cert_dir = DIMOS_PROJECT_ROOT / "assets" / "vr" / "certificates"
+            cert_file = cert_dir / "cert.pem"
+            key_file = cert_dir / "key.pem"
 
         if cert_file.exists() and key_file.exists():
             logger.info(f"SSL enabled with cert: {cert_file}")
@@ -267,7 +270,7 @@ class MetaQuestModule(Module):
                 except Exception as e:
                     logger.error(f"Server error: {e}", exc_info=True)
                 finally:
-                    self._running = False
+                    self.stop()
 
             self._server_thread = threading.Thread(target=run_server, daemon=True)
             self._server_thread.start()
@@ -276,8 +279,8 @@ class MetaQuestModule(Module):
             logger.info(f"VR server started at {protocol}://{self.host}:{self.port}")
 
         except Exception as e:
-            self._running = False
             logger.error(f"Failed to start VR server: {e}", exc_info=True)
+            self.stop()
             raise
 
     @rpc
@@ -326,12 +329,16 @@ class MetaQuestModule(Module):
         }
 
     @rpc
-    def generate_certificate(self, cert_dir: str = "dimos/vr/certificates"):
+    def generate_certificate(self, cert_dir: Optional[str] = None):
         try:
             from ..generate_cert import generate_self_signed_cert
 
-            cert_path = Path(cert_dir)
-            cert_path.mkdir(exist_ok=True)
+            if cert_dir:
+                cert_path = Path(cert_dir)
+            else:
+                cert_path = DIMOS_PROJECT_ROOT / "assets" / "vr" / "certificates"
+
+            cert_path.mkdir(parents=True, exist_ok=True)
 
             cert_file = cert_path / "cert.pem"
             key_file = cert_path / "key.pem"

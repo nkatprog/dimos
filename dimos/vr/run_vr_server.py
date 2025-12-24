@@ -15,7 +15,6 @@
 
 import json
 import logging
-import sys
 from pathlib import Path
 
 import uvicorn
@@ -23,8 +22,6 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from dimos.vr.models import ControllerFrame
 from dimos.vr.generate_cert import generate_self_signed_cert, get_local_ip
