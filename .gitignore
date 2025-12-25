@@ -42,3 +42,12 @@ data/*
 !data/.lfs/
 FastSAM-x.pt
 yolo11n.pt
+
+# Documentation files (auto-generated or temporary)
+*IMPLEMENTATION_SUMMARY.md
+*MOBILE_APP_SETUP.md
+*QUICKSTART_MOBILE.md
+*LCM_BRIDGE_IMPLEMENTATION.md
+CONNECTION_FLOW.txt
+SYSTEM_DIAGRAM.txt
+/dimos/web/mobile/assets/mock_data

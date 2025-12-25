@@ -1,5 +1,6 @@
 import React from 'react';
-import {SafeAreaView, StatusBar, View} from 'react-native';
+import {StatusBar, View} from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import FigletText from '../utils/FigletText';
 
 const LoadingScreen: React.FC = () => {

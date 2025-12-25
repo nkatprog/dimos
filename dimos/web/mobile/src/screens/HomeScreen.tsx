@@ -1,21 +1,23 @@
 import React from 'react';
 import {
   Alert,
-  SafeAreaView,
   StatusBar,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import {SafeAreaView} from 'react-native-safe-area-context';
 import FigletText from '../utils/FigletText';
 
 interface HomeScreenProps {
   onNavigateToSettings: () => void;
+  onNavigateToRobotStream: () => void;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({onNavigateToSettings}) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({onNavigateToSettings, onNavigateToRobotStream}) => {
   const handleAddRobotDog = () => {
-    Alert.alert('Add Robot', 'This feature will be implemented soon!');
+    // Navigate to robot stream screen
+    onNavigateToRobotStream();
   };
 
   return (
