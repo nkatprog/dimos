@@ -18,12 +18,14 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image as ROSImage
 from std_msgs.msg import Bool as ROSBool
-from vision_msgs.msg import BoundingBox2D as ROSBoundingBox2D
-from vision_msgs.msg import Detection2D as ROSDetection2D
-from vision_msgs.msg import Detection2DArray as ROSDetection2DArray
-from vision_msgs.msg import ObjectHypothesisWithPose as ROSObjectHypothesisWithPose
-from vision_msgs.msg import Point2D as ROSPoint2D
-from vision_msgs.msg import Pose2D as ROSPose2D
+from vision_msgs.msg import (
+    BoundingBox2D as ROSBoundingBox2D,
+    Detection2D as ROSDetection2D,
+    Detection2DArray as ROSDetection2DArray,
+    ObjectHypothesisWithPose as ROSObjectHypothesisWithPose,
+    Point2D as ROSPoint2D,
+    Pose2D as ROSPose2D,
+)
 
 from dimos.core.core import rpc
 from dimos.core.skill_module import SkillModule
@@ -51,21 +53,19 @@ class VisualTrackingSkillContainer(SkillModule):
     def start(self) -> None:
         super().start()
         self._running = True
-        
+
         if not rclpy.ok():
             rclpy.init()
         self._node = Node("visual_tracking_skill")
-        
+
         self._image_sub = self._node.create_subscription(
             ROSImage, "/zed/zed_node/rgb/color/rect/image", self._on_ros_image, 10
         )
-        self._bbox_pub = self._node.create_publisher(
-            ROSDetection2DArray, "/track_3d/init_bbox", 10
-        )
+        self._bbox_pub = self._node.create_publisher(ROSDetection2DArray, "/track_3d/init_bbox", 10)
         self._tracking_sub = self._node.create_subscription(
             ROSBool, "/track_3d/is_tracking", self._on_tracking_status, 10
         )
-        
+
         self._spin_thread = threading.Thread(
             target=self._spin_node, daemon=True, name="VisualTrackingSpinThread"
         )
@@ -93,31 +93,31 @@ class VisualTrackingSkillContainer(SkillModule):
     @skill()
     def track_object(self, query: str) -> str:
         """Track an object using visual detection. Provide a description of what to track.
-        
+
         Example:
             track_object("person")
             track_object("red cup")
             track_object("xbox controller")
         """
         image = self._latest_image
-        
+
         logger.info(f"Detecting '{query}' in image")
         detections = self._moondream.query_detections(image, query)
-        
+
         if not detections.detections:
             return f"No '{query}' found in current camera view."
-        
+
         logger.info(f"Found {len(detections.detections)} detections for '{query}'")
-        
+
         detection_array = ROSDetection2DArray()
-        
+
         for det in detections.detections:
             x1, y1, x2, y2 = det.bbox
             center_x = (x1 + x2) / 2.0
             center_y = (y1 + y2) / 2.0
             size_x = x2 - x1
             size_y = y2 - y1
-            
+
             ros_detection = ROSDetection2D()
             ros_detection.bbox = ROSBoundingBox2D()
             ros_detection.bbox.center = ROSPose2D()
@@ -127,12 +127,12 @@ class VisualTrackingSkillContainer(SkillModule):
             ros_detection.bbox.center.theta = 0.0
             ros_detection.bbox.size_x = size_x
             ros_detection.bbox.size_y = size_y
-            
+
             detection_array.detections.append(ros_detection)
-        
+
         self._bbox_pub.publish(detection_array)
         logger.info(f"Published {len(detection_array.detections)} bboxes to /track_3d/init_bbox")
-        
+
         return f"Initiated tracking for {len(detections.detections)} {query} object(s)."
 
 
@@ -140,4 +140,3 @@ visual_tracking_skill = VisualTrackingSkillContainer.blueprint
 
 
 __all__ = ["VisualTrackingSkillContainer", "visual_tracking_skill"]
-

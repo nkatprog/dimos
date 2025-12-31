@@ -30,4 +30,3 @@ demo_visual_tracking = autoconnect(
     human_input(),
     llm_agent(system_prompt=get_system_prompt()),
 )
-
