@@ -26,7 +26,7 @@ from dimos_lcm.std_msgs.Header import Header  # type: ignore[import-untyped]
 import numpy as np
 import open3d as o3d  # type: ignore[import-untyped]
 
-from dimos.msgs.geometry_msgs import Vector3
+from dimos.msgs.geometry_msgs import Transform, Vector3
 
 # Import ROS types
 try:
@@ -109,6 +109,54 @@ class PointCloud2(Timestamped):
             pointcloud=self.pointcloud + other.pointcloud,
             frame_id=self.frame_id,
             ts=max(self.ts, other.ts),
+        )
+
+    def transform(self, tf: Transform) -> PointCloud2:
+        """Transform the pointcloud using a Transform object.
+
+        Applies the rotation and translation from the transform to all points,
+        converting them into the transform's frame_id.
+
+        Args:
+            tf: Transform object containing rotation and translation
+
+        Returns:
+            New PointCloud2 instance with transformed points in the new frame
+        """
+        points = self.as_numpy()
+
+        if len(points) == 0:
+            return PointCloud2(
+                pointcloud=o3d.geometry.PointCloud(),
+                frame_id=tf.frame_id,
+                ts=self.ts,
+            )
+
+        # Build 4x4 transformation matrix from Transform
+        transform_matrix = tf.to_matrix()
+
+        # Convert points to homogeneous coordinates (N, 4)
+        ones = np.ones((len(points), 1))
+        points_homogeneous = np.hstack([points, ones])
+
+        # Apply transformation: (4, 4) @ (4, N) -> (4, N) -> transpose to (N, 4)
+        transformed_points = (transform_matrix @ points_homogeneous.T).T
+
+        # Extract xyz coordinates (drop homogeneous coordinate)
+        transformed_xyz = transformed_points[:, :3].astype(np.float64)
+
+        # Create new Open3D point cloud
+        new_pcd = o3d.geometry.PointCloud()
+        new_pcd.points = o3d.utility.Vector3dVector(transformed_xyz)
+
+        # Copy colors if available
+        if self.pointcloud.has_colors():
+            new_pcd.colors = self.pointcloud.colors
+
+        return PointCloud2(
+            pointcloud=new_pcd,
+            frame_id=tf.frame_id,
+            ts=self.ts,
         )
 
     # TODO what's the usual storage here? is it already numpy?

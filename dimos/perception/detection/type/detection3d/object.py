@@ -14,8 +14,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import time
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import cv2
@@ -24,7 +25,7 @@ from dimos_lcm.vision_msgs import ObjectHypothesis, ObjectHypothesisWithPose
 import numpy as np
 import open3d as o3d
 
-from dimos.msgs.geometry_msgs import PoseStamped, Quaternion, Vector3
+from dimos.msgs.geometry_msgs import PoseStamped, Quaternion, Vector3, Transform
 from dimos.msgs.sensor_msgs import Image, PointCloud2
 from dimos.msgs.std_msgs import Header
 from dimos.msgs.vision_msgs import Detection3D as ROSDetection3D, Detection3DArray
@@ -45,39 +46,44 @@ class Object(Detection3D):
     multiple detections over time.
     """
 
+    object_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     pointcloud: PointCloud2 | None = None
+    camera_transform: Transform | None = None
     center: Vector3 | None = None
     size: Vector3 | None = None
-    orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
+    pose: PoseStamped | None = None
     detections_count: int = 1
-    best_detection: Object | None = None
 
-    @property
-    def pose(self) -> PoseStamped:
-        """Convert to PoseStamped using the object's transform."""
-        return self.transform.to_pose(ts=self.ts, frame_id=self.frame_id)
+    def update_object(self, other: Object) -> None:
+        """Update this object with data from another detection.
 
-    def to_repr_dict(self) -> dict[str, Any]:
-        """Return a dictionary representation for display."""
-        camera_pos = self.transform.translation
-        distance = (self.center - camera_pos).magnitude()
+        Accumulates pointclouds by transforming the new pointcloud to world frame
+        and adding it to the existing pointcloud. Updates center and camera_transform,
+        and increments the detections_count.
 
-        parent_dict = super().to_repr_dict()
-        parent_dict.pop("bbox", None)
+        Args:
+            other: Another Object instance with newer detection data.
+        """
+        # Accumulate pointclouds if both exist and transforms are available
+        if (
+            self.pointcloud is not None
+            and other.pointcloud is not None
+            and other.camera_transform is not None
+        ):
+            # Transform new pointcloud to world frame and add to existing
+            transformed_pc = other.pointcloud.transform(other.camera_transform)
+            self.pointcloud = self.pointcloud + transformed_pc
 
-        result = {
-            **parent_dict,
-            "dist": f"{distance:.2f}m",
-        }
+            # Recompute center from accumulated pointcloud
+            pc_center = self.pointcloud.center
+            self.center = Vector3(pc_center.x, pc_center.y, pc_center.z)
+        else:
+            # No transform available, just replace
+            self.pointcloud = other.pointcloud
+            self.center = other.center
 
-        if self.pointcloud is not None:
-            result["points"] = str(len(self.pointcloud))
-        if self.size is not None:
-            result["size"] = f"[{self.size.x:.2f},{self.size.y:.2f},{self.size.z:.2f}]"
-        if self.detections_count > 1:
-            result["detections"] = str(self.detections_count)
-
-        return result
+        self.camera_transform = other.camera_transform
+        self.detections_count += 1
 
     def get_oriented_bounding_box(self):
         """Get oriented bounding box of the pointcloud."""
@@ -104,23 +110,16 @@ class Object(Detection3D):
             )
         ]
 
-        if self.center is not None and self.size is not None:
-            msg.bbox.center = Pose(
-                position=self.center,
-                orientation=Quaternion(*self.orientation),
-            )
-            msg.bbox.size = self.size
-        else:
-            obb = self.get_oriented_bounding_box()
-            obb_center = obb.center
-            obb_extent = obb.extent
-            orientation = Quaternion.from_rotation_matrix(obb.R)
+        obb = self.get_oriented_bounding_box()
+        obb_center = obb.center
+        obb_extent = obb.extent
+        orientation = Quaternion.from_rotation_matrix(obb.R)
 
-            msg.bbox.center = Pose(
-                position=Vector3(obb_center[0], obb_center[1], obb_center[2]),
-                orientation=orientation,
-            )
-            msg.bbox.size = Vector3(obb_extent[0], obb_extent[1], obb_extent[2])
+        msg.bbox.center = Pose(
+            position=Vector3(obb_center[0], obb_center[1], obb_center[2]),
+            orientation=orientation,
+        )
+        msg.bbox.size = Vector3(obb_extent[0], obb_extent[1], obb_extent[2])
 
         return msg
 
@@ -140,6 +139,7 @@ class Object(Detection3D):
         color_image: Image,
         depth_image: Image,
         camera_info: CameraInfo,
+        camera_transform: Transform | None = None,
         depth_scale: float = 1.0,
         depth_trunc: float = 10.0,
         statistical_nb_neighbors: int = 10,
@@ -155,6 +155,8 @@ class Object(Detection3D):
             color_image: RGB color image
             depth_image: Depth image (in meters if depth_scale=1.0)
             camera_info: Camera intrinsics
+            camera_transform: Optional transform from camera frame to world frame.
+                If provided, pointclouds will be transformed to world frame.
             depth_scale: Scale factor for depth (1.0 for meters, 1000.0 for mm)
             depth_trunc: Maximum depth value in meters
             statistical_nb_neighbors: Neighbors for statistical outlier removal
@@ -225,6 +227,17 @@ class Object(Detection3D):
                 ts=depth_image.ts,
             )
 
+            # Transform pointcloud to world frame if camera_transform is provided
+            if camera_transform is not None:
+                pc = pc.transform(camera_transform)
+                frame_id = camera_transform.frame_id
+            else:
+                frame_id = depth_image.frame_id
+
+            # Compute center from pointcloud
+            pc_center = pc.center
+            center = Vector3(pc_center.x, pc_center.y, pc_center.z)
+
             objects.append(
                 cls(
                     bbox=det.bbox,
@@ -234,8 +247,10 @@ class Object(Detection3D):
                     name=det.name,
                     ts=det.ts,
                     image=det.image,
-                    frame_id=depth_image.frame_id,
+                    frame_id=frame_id,
                     pointcloud=pc,
+                    center=center,
+                    camera_transform=camera_transform,
                 )
             )
 

@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from queue import Queue
+from queue import Empty, Queue
 import threading
-import time
 
 from cv_bridge import CvBridge
 import message_filters
@@ -23,6 +22,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.wait_for_message import wait_for_message
+import tf2_ros
 from sensor_msgs.msg import (
     CameraInfo as ROSCameraInfo,
     CompressedImage as ROSCompressedImage,
@@ -36,6 +36,7 @@ from vision_msgs.msg import (
 )
 
 from dimos.core import Module, rpc
+from dimos.msgs.geometry_msgs import Transform
 from dimos.msgs.sensor_msgs import CameraInfo, Image
 from dimos.perception.detection.detectors.yoloe import Yoloe2DDetector, YoloePromptMode
 from dimos.perception.detection.type import ImageDetections2D
@@ -60,6 +61,13 @@ class ObjectSceneRegistrationModule(Module):
     _processing_queue: Queue | None = None
     _running: bool = False
     _camera_info: CameraInfo | None = None
+    _tf_buffer: tf2_ros.Buffer | None = None
+    _tf_listener: tf2_ros.TransformListener | None = None
+
+    # TODO: Re-enable once ObjectDB RPC wiring is fixed
+    # rpc_calls: list[str] = [
+    #     "ObjectDB.add_objects",
+    # ]
 
     def __init__(
         self,
@@ -70,6 +78,7 @@ class ObjectSceneRegistrationModule(Module):
         detections_3d_topic: str = "/object_detections/bbox3d",
         overlay_topic: str = "/object_detections/overlay",
         pointcloud_topic: str = "/object_detections/pointcloud",
+        target_frame: str = "map",
     ) -> None:
         super().__init__()
         self._image_topic = image_topic
@@ -79,6 +88,7 @@ class ObjectSceneRegistrationModule(Module):
         self._detections_3d_topic = detections_3d_topic
         self._overlay_topic = overlay_topic
         self._pointcloud_topic = pointcloud_topic
+        self._target_frame = target_frame
         self._bridge = CvBridge()
 
     @rpc
@@ -96,6 +106,10 @@ class ObjectSceneRegistrationModule(Module):
         if not rclpy.ok():
             rclpy.init()
         self._node = Node("object_scene_registration")
+
+        # Initialize TF2 buffer and listener
+        self._tf_buffer = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self._node)
 
         # Wait for camera info once (it rarely changes)
         logger.info(f"Waiting for camera_info on {self._camera_info_topic}...")
@@ -190,12 +204,10 @@ class ObjectSceneRegistrationModule(Module):
         """Background thread for heavy image processing."""
         while self._running:
             try:
-                # Block until data is available (with timeout to check _running)
                 color_msg, depth_msg = self._processing_queue.get(timeout=0.5)
                 self._process_images(color_msg, depth_msg)
             except Exception:
-                # Queue.get timeout - just continue to check _running
-                continue
+                logger.exception("Error processing images")
 
     @rpc
     def stop(self) -> None:
@@ -318,15 +330,45 @@ class ObjectSceneRegistrationModule(Module):
         if self._camera_info is None:
             return
 
+        # Look up transform from camera frame to target frame (e.g., map)
+        camera_transform: Transform | None = None
+        if self._tf_buffer is not None:
+            try:
+                ros_transform = self._tf_buffer.lookup_transform(
+                    self._target_frame,
+                    color_image.frame_id,
+                    rclpy.time.Time(),
+                    timeout=rclpy.duration.Duration(seconds=0.1),
+                )
+                camera_transform = Transform.from_ros_transform_stamped(ros_transform)
+            except (
+                tf2_ros.LookupException,
+                tf2_ros.ConnectivityException,
+                tf2_ros.ExtrapolationException,
+            ):
+                pass
+
         objects = Object.from_2d(
             detections_2d=detections_2d,
             color_image=color_image,
             depth_image=depth_image,
             camera_info=self._camera_info,
+            #camera_transform=camera_transform,
         )
 
         if not objects:
             return
+
+        # TODO: Re-enable ObjectDB RPC call once module wiring is fixed
+        # The RPC call blocks indefinitely if ObjectDB is not responding
+        # try:
+        #     add_objects_rpc = self.get_rpc_calls("ObjectDB.add_objects")
+        #     add_objects_rpc(objects)
+        #     logger.info("ObjectDB RPC call succeeded")
+        # except ValueError:
+        #     pass
+        # except Exception as e:
+        #     logger.warning(f"ObjectDB RPC call failed: {e}")
 
         detections_3d = to_detection3d_array(objects)
         ros_detections_3d = detections_3d.to_ros_msg()
@@ -335,6 +377,7 @@ class ObjectSceneRegistrationModule(Module):
         aggregated_pc = aggregate_pointclouds(objects)
         if aggregated_pc is not None:
             ros_pc = aggregated_pc.to_ros_msg()
+            # Use the frame_id from the aggregated pointcloud (already transformed)
             ros_pc.header = header
             self._pointcloud_pub.publish(ros_pc)
 

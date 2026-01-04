@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import functools
 from typing import Any
 
@@ -37,7 +37,7 @@ class Detection3DBBox(Detection2DBBox):
     frame_id: str = ""  # Frame ID (e.g., "world", "map")
     center: Vector3 | None = None  # Center point in world frame
     size: Vector3 | None = None  # Width, height, depth
-    orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)  # Quaternion (x, y, z, w)
+    orientation: Quaternion = field(default_factory=lambda: Quaternion(0.0, 0.0, 0.0, 1.0))
 
     @functools.cached_property
     def pose(self) -> PoseStamped:
@@ -70,7 +70,7 @@ class Detection3DBBox(Detection2DBBox):
         # Bounding Box
         msg.bbox.center = Pose(
             position=self.center,
-            orientation=Quaternion(*self.orientation),
+            orientation=self.orientation,
         )
         msg.bbox.size = self.size
 

@@ -157,7 +157,7 @@ class Yoloe2DDetector(Detector):
         track_kwargs = {
             "source": image.to_opencv(),
             "device": self.device,
-            "conf": 0.75,
+            "conf": 0.5,
             "iou": 0.6,
             "persist": True,
             "verbose": False,

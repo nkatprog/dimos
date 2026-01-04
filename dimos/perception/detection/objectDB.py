@@ -1,0 +1,271 @@
+# Copyright 2025 Dimensional Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import threading
+from typing import Any
+
+from dimos.core import Module, rpc
+from dimos.msgs.geometry_msgs import Vector3
+from dimos.perception.detection.type.detection3d.object import Object
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger()
+
+
+class ObjectDB(Module):
+    """Spatial memory database for 3D object detections.
+
+    Maintains two tiers of objects internally:
+    - _pending_objects: Recently detected objects (detection_count < threshold)
+    - _objects: Confirmed permanent objects (detection_count >= threshold)
+
+    Deduplication uses two heuristics:
+    1. track_id match from YOLOE tracker (immediate match)
+    2. Center distance within threshold (spatial proximity match)
+    """
+
+    def __init__(
+        self,
+        distance_threshold: float = 0.5,
+        min_detections_for_permanent: int = 5,
+    ) -> None:
+        super().__init__()
+        self._distance_threshold = distance_threshold
+        self._min_detections = min_detections_for_permanent
+
+        # Internal storage - keyed by object_id
+        self._pending_objects: dict[str, Object] = {}
+        self._objects: dict[str, Object] = {}  # Permanent objects
+
+        # track_id -> object_id mapping for fast lookup
+        self._track_id_map: dict[int, str] = {}
+
+        self._lock = threading.RLock()
+
+    # ─────────────────────────────────────────────────────────────────
+    # RPC Methods (Public Interface)
+    # ─────────────────────────────────────────────────────────────────
+
+    @rpc
+    def add_objects(self, objects: list[Object]) -> list[Object]:
+        """Add multiple objects to the database with deduplication.
+
+        Args:
+            objects: List of Object instances from object_scene_registration
+
+        Returns:
+            List of updated/created Object instances
+        """
+        results: list[Object] = []
+        for obj in objects:
+            updated_obj = self._add_object(obj)
+            results.append(updated_obj)
+        return results
+
+    @rpc
+    def get_objects(self) -> list[Object]:
+        """Get all permanent objects (detection_count >= threshold)."""
+        with self._lock:
+            return list(self._objects.values())
+
+    @rpc
+    def find_by_name(self, name: str) -> list[Object]:
+        """Find all permanent objects with matching name."""
+        with self._lock:
+            return [obj for obj in self._objects.values() if obj.name == name]
+
+    @rpc
+    def find_nearest(
+        self,
+        position: Vector3,
+        name: str | None = None,
+    ) -> Object | None:
+        """Find nearest permanent object to a position, optionally filtered by name.
+
+        Args:
+            position: Position to search from
+            name: Optional name filter
+
+        Returns:
+            Nearest Object or None if no objects found
+        """
+        with self._lock:
+            candidates = [
+                obj for obj in self._objects.values()
+                if obj.center is not None and (name is None or obj.name == name)
+            ]
+
+            if not candidates:
+                return None
+
+            return min(candidates, key=lambda obj: position.distance(obj.center))
+
+    @rpc
+    def clear(self) -> None:
+        """Clear all objects from the database."""
+        with self._lock:
+            self._pending_objects.clear()
+            self._objects.clear()
+            self._track_id_map.clear()
+            logger.info("ObjectDB cleared")
+
+    @rpc
+    def get_stats(self) -> dict[str, int]:
+        """Get statistics about the database."""
+        with self._lock:
+            return {
+                "pending_count": len(self._pending_objects),
+                "permanent_count": len(self._objects),
+                "total_count": len(self._pending_objects) + len(self._objects),
+            }
+
+    # ─────────────────────────────────────────────────────────────────
+    # Internal Methods
+    # ─────────────────────────────────────────────────────────────────
+
+    def _add_object(self, obj: Object) -> Object:
+        """Add single object with deduplication logic.
+
+        Priority:
+        1. Match by track_id (immediate)
+        2. Match by center distance + same name
+        3. No match -> create new pending object
+        """
+        with self._lock:
+            # Try to find a matching object
+            existing = self._find_matching_object(obj)
+
+            if existing is not None:
+                # Update existing object with new detection
+                existing.update_object(obj)
+
+                # Update track_id mapping if track_id changed
+                if obj.track_id >= 0:
+                    self._track_id_map[obj.track_id] = existing.object_id
+
+                # Check if should promote to permanent
+                self._check_promotion(existing)
+
+                logger.debug(
+                    f"Updated object {existing.object_id} ({existing.name}), "
+                    f"detections: {existing.detections_count}"
+                )
+                return existing
+            else:
+                # No match - create new pending object
+                self._pending_objects[obj.object_id] = obj
+
+                # Track the track_id mapping
+                if obj.track_id >= 0:
+                    self._track_id_map[obj.track_id] = obj.object_id
+
+                logger.info(
+                    f"Created new pending object {obj.object_id} ({obj.name})"
+                )
+                return obj
+
+    def _find_matching_object(self, obj: Object) -> Object | None:
+        """Find existing object that matches the new detection.
+
+        Priority:
+        1. Match by track_id (immediate)
+        2. Match by center distance + same name
+        """
+        # Priority 1: Match by track_id
+        if obj.track_id >= 0:
+            matched = self._match_by_track_id(obj.track_id)
+            if matched is not None:
+                return matched
+
+        # Priority 2: Match by distance
+        return self._match_by_distance(obj)
+
+    def _match_by_track_id(self, track_id: int) -> Object | None:
+        """Find object with matching track_id from YOLOE."""
+        if track_id < 0:
+            return None
+
+        object_id = self._track_id_map.get(track_id)
+        if object_id is None:
+            return None
+
+        # Check in permanent objects first
+        if object_id in self._objects:
+            return self._objects[object_id]
+
+        # Check in pending objects
+        if object_id in self._pending_objects:
+            return self._pending_objects[object_id]
+
+        return None
+
+    def _match_by_distance(self, obj: Object) -> Object | None:
+        """Find object within distance threshold with same name."""
+        if obj.center is None:
+            return None
+
+        # Combine all objects and filter by name and valid center
+        all_objects = list(self._objects.values()) + list(self._pending_objects.values())
+        candidates = [
+            o for o in all_objects
+            if o.name == obj.name and o.center is not None
+            and obj.center.distance(o.center) < self._distance_threshold
+        ]
+
+        if not candidates:
+            return None
+
+        return min(candidates, key=lambda o: obj.center.distance(o.center))
+
+    def _check_promotion(self, obj: Object) -> None:
+        """Move object from pending to permanent if threshold met."""
+        if obj.detections_count >= self._min_detections:
+            # Check if it's in pending
+            if obj.object_id in self._pending_objects:
+                # Promote to permanent
+                del self._pending_objects[obj.object_id]
+                self._objects[obj.object_id] = obj
+                logger.info(
+                    f"Promoted object {obj.object_id} ({obj.name}) to permanent "
+                    f"with {obj.detections_count} detections"
+                )
+
+    # ─────────────────────────────────────────────────────────────────
+    # Agent encoding
+    # ─────────────────────────────────────────────────────────────────
+
+    def agent_encode(self) -> list[dict[str, Any]]:
+        """Encode permanent objects for agent consumption."""
+        with self._lock:
+            return [obj.agent_encode() for obj in self._objects.values()]
+
+    def __len__(self) -> int:
+        """Return number of permanent objects."""
+        with self._lock:
+            return len(self._objects)
+
+    def __repr__(self) -> str:
+        with self._lock:
+            return (
+                f"ObjectDB(permanent={len(self._objects)}, "
+                f"pending={len(self._pending_objects)})"
+            )
+
+
+# Module blueprint for deployment
+object_db_module = ObjectDB.blueprint
+
+__all__ = ["ObjectDB", "object_db_module"]
