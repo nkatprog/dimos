@@ -26,11 +26,12 @@ Example:
 
 from __future__ import annotations
 
-import logging
 import time
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from dimos.utils.logging_config import setup_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from dimos.manipulation.planning.spec import WorldSpec
     from dimos.msgs.sensor_msgs import JointState
 
-logger = logging.getLogger(__name__)
+logger = setup_logger()
 
 
 class WorldStateMonitor:
@@ -124,37 +125,53 @@ class WorldStateMonitor:
         Args:
             msg: JointState message with joint names and positions
         """
-        if not self._running:
-            return
-
-        # Extract positions for our robot's joints
-        positions = self._extract_positions(msg)
-        if positions is None:
-            return  # Not all joints present in message
-
-        velocities = self._extract_velocities(msg)
-
-        with self._lock:
-            current_time = time.time()
-
-            # Sync to world's live context
-            try:
-                self._world.sync_from_joint_state(self._robot_id, positions)
-            except Exception as e:
-                logger.error(f"Failed to sync joint state: {e}")
+        try:
+            if not self._running:
                 return
 
-            # Store latest state
-            self._latest_positions = positions
-            self._latest_velocities = velocities
-            self._last_update_time = current_time
+            # Extract positions for our robot's joints
+            positions = self._extract_positions(msg)
+            if positions is None:
+                logger.debug(
+                    "[WorldStateMonitor] Failed to extract positions - joint names mismatch"
+                )
+                logger.debug(f"  Expected joints: {self._joint_names}")
+                logger.debug(f"  Received joints: {msg.name}")
+                return  # Not all joints present in message
 
-            # Call registered callbacks
-            for callback in self._state_callbacks:
+            velocities = self._extract_velocities(msg)
+
+            # Track message count for debugging
+            self._msg_count = getattr(self, "_msg_count", 0) + 1
+
+            with self._lock:
+                current_time = time.time()
+
+                # Store latest state FIRST - this ensures planning always has
+                # current positions even if sync_from_joint_state fails
+                # (e.g., after dynamically adding obstacles)
+                self._latest_positions = positions
+                self._latest_velocities = velocities
+                self._last_update_time = current_time
+
+                # Sync to world's live context (for visualization)
                 try:
-                    callback(self._robot_id, positions)
+                    self._world.sync_from_joint_state(self._robot_id, positions)
                 except Exception as e:
-                    logger.error(f"State callback error: {e}")
+                    logger.error(f"Failed to sync joint state to live context: {e}")
+
+                # Call registered callbacks
+                for callback in self._state_callbacks:
+                    try:
+                        callback(self._robot_id, positions)
+                    except Exception as e:
+                        logger.error(f"State callback error: {e}")
+
+        except Exception as e:
+            logger.error(f"[WorldStateMonitor] Unexpected exception in on_joint_state: {e}")
+            import traceback
+
+            logger.error(traceback.format_exc())
 
     def _extract_positions(self, msg: JointState) -> NDArray[np.float64] | None:
         """Extract positions for our joints from JointState message.
