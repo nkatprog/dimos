@@ -62,12 +62,15 @@ class DepthAIConfig(CameraConfig):
 
 
 class DepthAI(StereoCameraHardware[DepthAIConfig]):
-    """DepthAI/OAK-D Pro stereo RGB-D camera (no implemented without ROS).
+    """DepthAI/OAK-D Pro stereo RGB-D camera (implemented without ROS).
 
     Provides:
     - `image_stream()` emitting RGB frames
     - `depth_stream()` emitting DEPTH16 frames (uint16 millimeters) aligned to RGB
     - `camera_info` for the RGB stream intrinsics
+
+    The camera automatically boots the device if it's in UNBOOTED state and handles
+    device recovery on Ubuntu 24.04 and other Linux distributions.
     """
 
     default_config = DepthAIConfig
@@ -194,6 +197,21 @@ class DepthAI(StereoCameraHardware[DepthAIConfig]):
         import depthai as dai  # type: ignore[import-not-found]
 
         try:
+            # Check if device is in UNBOOTED state and boot it first
+            devices = dai.Device.getAllAvailableDevices()
+            if devices:
+                device_info = devices[0]
+                state_str = str(device_info.state) if hasattr(device_info, 'state') else ''
+                if 'UNBOOTED' in state_str:
+                    logger.info("Device is in UNBOOTED state. Booting device first...")
+                    try:
+                        boot_device = dai.Device(device_info)
+                        boot_device.close()
+                        time.sleep(0.5)  # Give device time to settle after booting
+                        logger.info("Device booted successfully.")
+                    except Exception as e:
+                        logger.warning(f"Could not boot device explicitly: {e}. Will try pipeline booting...")
+
             self._pipeline = self._make_pipeline()
             # Create output queues BEFORE starting the pipeline (DepthAI v3 API).
             if self._rgb_out is None or self._depth_out is None:

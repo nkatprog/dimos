@@ -1,0 +1,17 @@
+# Minimal deps to run DepthAI bring-up scripts in this folder.
+# Intended for a lightweight venv (avoids pulling the full dimos stack).
+
+depthai==3.2.1
+opencv-python
+numpy
+
+# Used by dimos/hardware/sensors/camera/depthai/camera.py + streaming utilities
+reactivex
+rxpy-backpressure @ git+https://github.com/dimensionalOS/rxpy-backpressure.git
+
+# Needed to import dimos message types used by the DepthAI driver
+dimos-lcm @ git+https://github.com/dimensionalOS/dimos-lcm.git@3aeb724863144a8ba6cf72c9f42761d1007deda4
+sortedcontainers
+structlog
+PyTurboJPEG==1.8.2
+plum-dispatch==2.5.7

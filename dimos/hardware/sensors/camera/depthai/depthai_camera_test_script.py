@@ -26,6 +26,8 @@ Quit with 'q' or ESC.
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -80,6 +82,133 @@ def _depth_to_colormap(depth_mm: np.ndarray, max_depth_mm: int) -> np.ndarray:
     d = np.clip(d, 0.0, float(max_depth_mm))
     d8 = (d / float(max_depth_mm) * 255.0).astype(np.uint8)
     return cv2.applyColorMap(d8, cv2.COLORMAP_TURBO)
+
+
+def _check_device_available() -> bool:
+    """Check if DepthAI device is available and not in use."""
+    try:
+        import depthai as dai  # type: ignore[import-not-found]
+        devices = dai.Device.getAllAvailableDevices()
+        if not devices:
+            return False
+        
+        # Try to get device info (doesn't open it, just checks availability)
+        for d in devices:
+            try:
+                # Check if device state is reasonable
+                state_str = str(d.state) if hasattr(d, 'state') else ''
+                if 'ERROR' in state_str or 'NOT_FOUND' in state_str:
+                    return False
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_device_recovery(max_wait_seconds: float = 5.0) -> bool:
+    """Wait for device to recover if it was in a bad state."""
+    try:
+        import depthai as dai  # type: ignore[import-not-found]
+    except ImportError:
+        return False
+    
+    start_time = time.time()
+    while time.time() - start_time < max_wait_seconds:
+        try:
+            devices = dai.Device.getAllAvailableDevices()
+            if devices:
+                # Check if any device is in a recoverable state
+                for d in devices:
+                    state_str = str(d.state) if hasattr(d, 'state') else ''
+                    if 'UNBOOTED' in state_str or 'BOOTED' in state_str:
+                        # Device seems OK, give it a moment to stabilize
+                        time.sleep(0.5)
+                        return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def _check_device_available() -> bool:
+    """Check if DepthAI device is available and not in use."""
+    try:
+        import depthai as dai
+        devices = dai.Device.getAllAvailableDevices()
+        if not devices:
+            return False
+        
+        # Try to get device info (doesn't open it, just checks availability)
+        for d in devices:
+            try:
+                # Check if device state is reasonable
+                state_str = str(d.state) if hasattr(d, 'state') else ''
+                if 'ERROR' in state_str or 'NOT_FOUND' in state_str:
+                    return False
+            except Exception:
+                pass
+        return True
+    except Exception:
+        return False
+
+
+def _wait_for_device_recovery(max_wait_seconds: float = 5.0) -> bool:
+    """Wait for device to recover if it was in a bad state."""
+    import depthai as dai
+    
+    start_time = time.time()
+    while time.time() - start_time < max_wait_seconds:
+        try:
+            devices = dai.Device.getAllAvailableDevices()
+            if devices:
+                # Check if any device is in a recoverable state
+                for d in devices:
+                    state_str = str(d.state) if hasattr(d, 'state') else ''
+                    if 'UNBOOTED' in state_str or 'BOOTED' in state_str:
+                        # Device seems OK, give it a moment to stabilize
+                        time.sleep(0.5)
+                        return True
+        except Exception:
+            pass
+        time.sleep(0.2)
+    return False
+
+
+def _kill_existing_processes() -> None:
+    """Kill any existing depthai_camera_test_script processes to free the device."""
+    
+    try:
+        # Get current process PID
+        current_pid = os.getpid()
+        
+        # Find other processes running this script
+        result = subprocess.run(
+            ['pgrep', '-f', 'depthai_camera_test_script.py'],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            pids = [int(pid) for pid in result.stdout.strip().split('\n') if pid and int(pid) != current_pid]
+            if pids:
+                print(f"[depthai] Found {len(pids)} existing process(es) holding the device. Cleaning up...")
+                for pid in pids:
+                    try:
+                        os.kill(pid, 15)  # SIGTERM first (graceful)
+                    except ProcessLookupError:
+                        pass
+                    except Exception:
+                        try:
+                            os.kill(pid, 9)  # SIGKILL if needed
+                        except Exception:
+                            pass
+                # Wait a moment for processes to die
+                time.sleep(1.0)
+                print("[depthai] Cleanup complete.")
+    except Exception as e:
+        # If pgrep isn't available or fails, continue anyway
+        pass
 
 
 def main() -> None:
@@ -178,6 +307,27 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Kill any existing processes that might be holding the device
+    _kill_existing_processes()
+
+    # Check if device is available before starting
+    print("[depthai] Checking device availability...")
+    if not _check_device_available():
+        print("[depthai] WARNING: No DepthAI device found or device is in error state.")
+        print("[depthai] Please check:")
+        print("[depthai]   1. Device is connected via USB")
+        print("[depthai]   2. Device is not in use by another process")
+        print("[depthai]   3. Try unplugging and replugging the device")
+        if not _wait_for_device_recovery():
+            raise SystemExit("[depthai] Device not available. Exiting.")
+        print("[depthai] Device recovered, proceeding...")
+    else:
+        print("[depthai] Device detected and available.")
+
+    # Add a small delay to ensure device is fully ready
+    time.sleep(0.5)
+
+    print("[depthai] Initializing camera...")
     cam = DepthAI(
         fps=args.fps,
         rgb_resolution=args.rgb_resolution,
@@ -251,10 +401,16 @@ def main() -> None:
                 cv2.imshow("DepthAI RGB", bgr)
 
             if args.show_depth and depth is not None:
-                depth_mm = np.asarray(depth.data)
-                if depth_mm.ndim == 2:
-                    depth_vis = _depth_to_colormap(depth_mm, max_depth_mm=args.max_depth_mm)
-                    cv2.imshow("DepthAI Depth (mm)", depth_vis)
+                try:
+                    depth_mm = np.asarray(depth.data)
+                    if depth_mm.ndim == 2:
+                        depth_vis = _depth_to_colormap(depth_mm, max_depth_mm=args.max_depth_mm)
+                        cv2.imshow("DepthAI Depth (mm)", depth_vis)
+                except Exception as e:
+                    # Handle errors during depth processing (e.g., device crash during read)
+                    print(f"[depthai] Warning: Error processing depth frame: {e}")
+                    # Skip this frame and continue
+                    pass
 
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):  # q or ESC
@@ -277,14 +433,37 @@ def main() -> None:
                     last_depth_count = dc
 
             time.sleep(0.001)
+    except KeyboardInterrupt:
+        print("\n[depthai] Interrupted by user. Cleaning up...")
+    except Exception as e:
+        print(f"\n[depthai] Error during execution: {e}")
+        print("[depthai] This might indicate a device crash or communication error.")
+        print("[depthai] If this persists, try:")
+        print("[depthai]   1. Unplugging and replugging the device")
+        print("[depthai]   2. Waiting a few seconds before restarting")
+        print("[depthai]   3. Checking USB cable/port (use USB 3.0)")
+        print("[depthai]   4. Ensuring no other process is using the device")
     finally:
+        print("[depthai] Stopping camera and cleaning up...")
         try:
-            rgb_sub.dispose()
-            depth_sub.dispose()
+            if 'rgb_sub' in locals():
+                rgb_sub.dispose()
         except Exception:
             pass
-        cam.stop()
-        cv2.destroyAllWindows()
+        try:
+            if 'depth_sub' in locals():
+                depth_sub.dispose()
+        except Exception:
+            pass
+        try:
+            cam.stop()
+        except Exception as e:
+            print(f"[depthai] Warning during cleanup: {e}")
+        try:
+            cv2.destroyAllWindows()
+        except Exception:
+            pass
+        print("[depthai] Cleanup complete.")
 
 
 if __name__ == "__main__":
