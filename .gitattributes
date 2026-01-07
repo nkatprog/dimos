@@ -15,3 +15,10 @@
 *.mov filter=lfs diff=lfs merge=lfs -text binary
 *.gif filter=lfs diff=lfs merge=lfs -text binary
 *.foxe filter=lfs diff=lfs merge=lfs -text binary
+# 3D Mesh files (robot descriptions)
+*.dae filter=lfs diff=lfs merge=lfs -text binary
+*.stl filter=lfs diff=lfs merge=lfs -text binary
+*.obj filter=lfs diff=lfs merge=lfs -text binary
+*.DAE filter=lfs diff=lfs merge=lfs -text binary
+*.STL filter=lfs diff=lfs merge=lfs -text binary
+*.OBJ filter=lfs diff=lfs merge=lfs -text binary
