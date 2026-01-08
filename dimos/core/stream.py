@@ -139,9 +139,11 @@ class Stream(Generic[T]):
 
 class Out(Stream[T], ObservableMixin[T]):
     _transport: Transport  # type: ignore[type-arg]
+    _taps: list[Callable[[T], None]]
 
     def __init__(self, *argv, **kwargs) -> None:  # type: ignore[no-untyped-def]
         super().__init__(*argv, **kwargs)
+        self._taps = []
 
     @property
     def transport(self) -> Transport[T]:
@@ -168,10 +170,36 @@ class Out(Stream[T], ObservableMixin[T]):
             ),
         )
 
+    def tap(self, cb: Callable[[T], None]) -> Callable[[], None]:
+        """Run cb(msg) on every publish (best-effort, local, pre-transport).
+
+        Args:
+            cb: Callback to run on each published message
+
+        Returns:
+            Unsubscribe function
+        """
+        self._taps.append(cb)
+
+        def _unsub() -> None:
+            try:
+                self._taps.remove(cb)
+            except ValueError:
+                pass
+
+        return _unsub
+
     def publish(self, msg) -> None:  # type: ignore[no-untyped-def]
         if not hasattr(self, "_transport") or self._transport is None:
             logger.warning(f"Trying to publish on Out {self} without a transport")
             return
+
+        for cb in tuple(self._taps):
+            try:
+                cb(msg)
+            except Exception as e:
+                logger.warning(f"Out tap error on {self.name}: {e}")
+
         self._transport.broadcast(self, msg)
 
     def subscribe(self, cb) -> Callable[[], None]:  # type: ignore[no-untyped-def]

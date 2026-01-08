@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2025-2026 Dimensional Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,10 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .Bool import Bool
-from .Float32 import Float32
-from .Header import Header
-from .Int8 import Int8
-from .Int32 import Int32
+"""Float32 message type."""
 
-__all__ = ["Bool", "Float32", "Header", "Int8", "Int32"]
+from typing import Any, ClassVar
+
+import rerun as rr
+
+from dimos_lcm.std_msgs import Float32 as LCMFloat32
+
+
+class Float32(LCMFloat32):  # type: ignore[misc]
+    """ROS-compatible Float32 message."""
+
+    msg_name: ClassVar[str] = "std_msgs.Float32"
+
+    def __init__(self, data: float = 0.0) -> None:
+        self.data = float(data)
+
+    def to_rerun(self) -> Any:
+        return rr.Scalars(self.data)
+
+

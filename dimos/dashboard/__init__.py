@@ -15,20 +15,41 @@
 """Dashboard module for visualization and monitoring.
 
 Rerun Initialization:
-    Main process (e.g., blueprints.build) starts Rerun server automatically.
-    Worker modules connect to the server via connect_rerun().
+    The CLI initializes the Rerun server/viewer and sends a global blueprint layout.
+    Dashboard modules connect to the server via connect_rerun() and log entities.
 
-Usage in modules:
-    import rerun as rr
-    from dimos.dashboard.rerun_init import connect_rerun
+Blueprint usage:
+    from dimos.dashboard import rerun_viz
 
-    class MyModule(Module):
-        def start(self):
-            super().start()
-            connect_rerun()  # Connect to Rerun server
-            rr.log("my/entity", my_data.to_rerun())
+    blueprint = autoconnect(
+        robot_connection(),
+        rerun_viz(voxel_box_size=0.1, voxel_colormap="turbo"),
+    )
 """
 
+from dimos.dashboard.rerun_autolog import autolog_to_rerun
 from dimos.dashboard.rerun_init import connect_rerun, init_rerun_server, shutdown_rerun
+from dimos.dashboard.rerun_logger_module import rerun_logger
+from dimos.dashboard.tf_rerun_module import tf_rerun
 
-__all__ = ["connect_rerun", "init_rerun_server", "shutdown_rerun"]
+__all__ = [
+    "autolog_to_rerun",
+    "connect_rerun",
+    "init_rerun_server",
+    "rerun_viz",
+    "shutdown_rerun",
+]
+
+
+def rerun_viz(**kwargs):  # type: ignore[no-untyped-def]
+    """Unified Rerun visualization blueprint: TF + core stream logging.
+
+    This keeps blueprint imports clean (one thing to import) and keeps all Rerun
+    policy in the dashboard layer.
+    """
+    from dimos.core.blueprints import autoconnect
+
+    return autoconnect(
+        tf_rerun(),
+        rerun_logger(**kwargs),
+    )

@@ -29,6 +29,7 @@ Usage:
         )
 """
 
+from collections.abc import Callable
 from typing import Any
 
 import rerun as rr
@@ -37,7 +38,7 @@ from dimos.core import Module, rpc
 from dimos.core.global_config import GlobalConfig
 from dimos.dashboard.rerun_init import connect_rerun
 from dimos.msgs.tf2_msgs import TFMessage
-from dimos.protocol.pubsub.lcmpubsub import LCM, Topic
+from dimos.protocol.pubsub.lcmpubsub import Topic
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
@@ -47,13 +48,12 @@ class TFRerunModule(Module):
     """Subscribes to /tf LCM topic and logs all transforms to Rerun.
 
     This module automatically visualizes the TF tree in Rerun by:
-    - Subscribing to the /tf LCM topic (captures ALL transforms in the system)
+    - Using self.tf.pubsub (built-in TF service's LCM instance)
     - Logging each transform to its derived entity path (world/{child_frame_id})
     """
 
     _global_config: GlobalConfig
-    _lcm: LCM | None = None
-    _unsubscribe: Any = None
+    _unsubscribe: Callable[[], None] | None = None
 
     def __init__(
         self,
@@ -78,14 +78,13 @@ class TFRerunModule(Module):
         if self._global_config.viewer_backend.startswith("rerun"):
             connect_rerun(global_config=self._global_config)
 
-            # Subscribe directly to LCM /tf topic (captures ALL transforms)
-            self._lcm = LCM()
-            self._lcm.start()
+            # Use built-in TF service's pubsub (no redundant LCM)
+            self.tf.start()  # Starts /tf subscription
             topic = Topic("/tf", TFMessage)
-            self._unsubscribe = self._lcm.subscribe(topic, self._on_tf_message)
-            logger.info("TFRerunModule: subscribed to /tf, logging all transforms to Rerun")
+            self._unsubscribe = self.tf.pubsub.subscribe(topic, self._on_tf_message)
+            logger.info("TFRerunModule: subscribed to /tf via self.tf.pubsub")
 
-    def _on_tf_message(self, msg: TFMessage, topic: Topic) -> None:
+    def _on_tf_message(self, msg: TFMessage, topic: Topic) -> None:  # type: ignore[type-arg]
         """Log all transforms in TFMessage to Rerun.
 
         Args:
@@ -97,14 +96,11 @@ class TFRerunModule(Module):
 
     @rpc
     def stop(self) -> None:
-        """Stop the TF visualization module and cleanup LCM subscription."""
+        """Stop the TF visualization module and cleanup subscription."""
         if self._unsubscribe:
             self._unsubscribe()
             self._unsubscribe = None
-
-        if self._lcm:
-            self._lcm.stop()
-            self._lcm = None
+        # Don't stop self.tf - it's shared by other modules
 
         super().stop()
 

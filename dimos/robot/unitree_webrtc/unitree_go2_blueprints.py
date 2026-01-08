@@ -30,7 +30,7 @@ from dimos.agents.spec import Provider
 from dimos.constants import DEFAULT_CAPACITY_COLOR_IMAGE
 from dimos.core.blueprints import autoconnect
 from dimos.core.transport import JpegLcmTransport, JpegShmTransport, LCMTransport, pSHMTransport
-from dimos.dashboard.tf_rerun_module import tf_rerun
+from dimos.dashboard import rerun_viz
 from dimos.mapping.costmapper import cost_mapper
 from dimos.mapping.voxels import voxel_mapper
 from dimos.msgs.sensor_msgs import Image, PointCloud2
@@ -70,16 +70,19 @@ mac = autoconnect(
 
 linux = autoconnect(foxglove_bridge())
 
+# Keep voxel_map compute resolution and Rerun render box size in sync.
+_VOXEL_SIZE = 0.1
+
 basic = autoconnect(
     go2_connection(),
     linux if platform.system() == "Linux" else mac,
     websocket_vis(),
-    tf_rerun(),  # Auto-visualize all TF transforms in Rerun
+    rerun_viz(voxel_box_size=_VOXEL_SIZE, voxel_colormap="turbo"),
 ).global_config(n_dask_workers=4, robot_model="unitree_go2")
 
 nav = autoconnect(
     basic,
-    voxel_mapper(voxel_size=0.1),
+    voxel_mapper(voxel_size=_VOXEL_SIZE),
     cost_mapper(),
     replanning_a_star_planner(),
     wavefront_frontier_explorer(),

@@ -18,7 +18,6 @@ import time
 from typing import Any, TypeVar, cast
 
 from dimos_lcm.std_msgs import Float32
-import rerun as rr
 
 from dimos.core import LCMTransport, Transport
 
@@ -78,6 +77,8 @@ def log_timing_to_rerun(entity_path: str) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            import rerun as rr
+
             start = time.perf_counter()
             result = func(*args, **kwargs)
             elapsed_ms = (time.perf_counter() - start) * 1000
