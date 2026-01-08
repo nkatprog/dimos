@@ -90,7 +90,8 @@ def read_consolidated_dep_json() -> dict:
 
 def consolidate_and_validate_distributed_deps() -> None:
     """Aggregate dep_database JSON and hardlink pyproject into bundled_files."""
-    aggregated = read_distributed_dep_json()
+    aggregated = read_consolidated_dep_json()
+    aggregated.update(read_distributed_dep_json())
     DEPENDENCY_OUT.parent.mkdir(parents=True, exist_ok=True)
     print("- saving unvalidated json")
     DEPENDENCY_OUT.write_text(json.dumps(aggregated, indent=2, sort_keys=True) + "\n")
@@ -231,19 +232,22 @@ def is_valid_apt_package_name(name: str) -> bool:
     )
     return not bool(res.returncode)
 
+gave_missing_cli_warning = False
 
 @cache()
 def get_valid_nixpkgs_attr_name(name: str) -> str | None:
+    global gave_missing_cli_warning
     if name.startswith("stdenv.cc"):
         return None
     # surprisingly-annoyingly hard (to do in any acceptable amount of time)
-    if shutil.which("nix-search") is None:
-        print("please install nix-search: https://github.com/peterldowns/nix-search-cli")
-        return name
-    if shutil.which("nvs") is None:
-        print(
-            "please install nvs:\n    nix profile install 'https://github.com/jeff-hykin/nix_version_search_cli/archive/50a3fef5c9826d1e08b360b7255808e53165e9b2.tar.gz#nvs'"
-        )
+    if shutil.which("nix-search") is None or shutil.which("nvs") is None:
+        if not gave_missing_cli_warning:
+            print("in order to validate nix package names")
+            print("please install nix-search: https://github.com/peterldowns/nix-search-cli")
+            print(
+                "please install nvs:\n    nix profile install 'https://github.com/jeff-hykin/nix_version_search_cli/archive/50a3fef5c9826d1e08b360b7255808e53165e9b2.tar.gz#nvs'"
+            )
+        gave_missing_cli_warning = True
         return name
 
     # remove prefix
@@ -346,7 +350,9 @@ def validate_names_and_load(dep_db) -> dict:
     print()
 
     brew_removed = []
-    if shutil.which("brew") is not None:
+    if shutil.which("brew") is None:
+        print("skipping validation of brew packages, because brew is not installed/available")
+    else:
         print("validating brew packages")
         for name, each_pkg in dep_db.items():
             print(f"- {name}                    ", end="\r")
@@ -362,7 +368,9 @@ def validate_names_and_load(dep_db) -> dict:
                 brew_removed.extend(start - end)
 
     nix_changed = {}
-    if shutil.which("nix") is not None:
+    if shutil.which("nix") is None:
+        print("skipping validation of nix packages, because nix is not installed")
+    else:
         print("validating nix packages")
         for name, each_pkg in dep_db.items():
             print(f"- {name}                    ", end="\r")
@@ -378,10 +386,13 @@ def validate_names_and_load(dep_db) -> dict:
                 each_pkg["nix_dependencies"] = new_list
 
     apt_removed = []
-    if shutil.which("apt-cache") is not None:
+    if shutil.which("apt-cache") is None:
+        print("skipping validation of apt-cache packages, because apt-cache is not available")
+    else:
         print("validating apt-cache packages")
         for name, each_pkg in dep_db.items():
             print(f"- {name}                    ", end="\r")
+            time.sleep(0.05)
             if each_pkg.get("apt_dependencies", None) is not None:
                 start = set(each_pkg["apt_dependencies"])
                 each_pkg["apt_dependencies"] = [
