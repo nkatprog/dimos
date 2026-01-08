@@ -87,6 +87,66 @@ voxel_mapper(voxel_size=0.1),   # 10cm voxels
 
 ---
 
+## How to use Rerun on `dev` (and the TF/entity nuances)
+
+Rerun on `dev` is **module-driven**: modules decide what to log, and `ModuleBlueprintSet.build()` sets up the shared viewer + default layout.
+
+### Rerun lifecycle (what happens automatically vs what modules must do)
+
+- **Server/viewer startup happens in the build step**
+  - [`dimos/core/blueprints.py`](../dimos/core/blueprints.py) calls `init_rerun_server()` (from [`dimos/dashboard/rerun_init.py`](../dimos/dashboard/rerun_init.py)) when `GlobalConfig.viewer_backend` starts with `rerun` and `rerun_enabled=True`.
+
+- **Worker processes must connect before logging**
+  - If a module is going to call `rr.log(...)`, it should call `connect_rerun(global_config=...)` first (see examples in:
+    - [`dimos/robot/unitree/connection/go2.py`](../dimos/robot/unitree/connection/go2.py)
+    - [`dimos/mapping/costmapper.py`](../dimos/mapping/costmapper.py)
+    - [`dimos/mapping/voxels.py`](../dimos/mapping/voxels.py)
+    - [`dimos/navigation/replanning_a_star/module.py`](../dimos/navigation/replanning_a_star/module.py)
+    ).
+
+### Panels and “why can’t I see my `rr.log`?”
+
+On `dev`, the default layout is composed from modules’ `rerun_views()` contributions:
+
+- Implement `@classmethod rerun_views()` on your module to add panels (2D/3D/time series).
+- The build step aggregates them and sends a composed blueprint (see [`dimos/core/blueprints.py`](../dimos/core/blueprints.py)).
+
+If you `rr.log("some/new/entity", ...)` but don’t see it where you expect:
+- it may not be included by any existing view panel, so add a `rerun_views()` panel that points at your entity path.
+
+### TF visualization: snapshot polling (no subscriptions, rate-controlled)
+
+The intended pattern for TF visualization on `dev` is:
+
+- **Publish transforms normally** via `self.tf.publish(...)` (TF is available on every module).
+- The TF visualization module **polls** the TF buffer at a configurable rate and logs a snapshot view:
+  - [`dimos/dashboard/tf_rerun_module.py`](../dimos/dashboard/tf_rerun_module.py) polls `self.tf.buffers` and logs the latest transform per edge under `world/tf/{child}`.
+
+This is deliberate:
+- It avoids a second transport subscription inside the viz module.
+- It gives stable visualization with a controllable update rate (`poll_hz`).
+
+### Entity paths vs TF frames (avoiding `tf#` confusion)
+
+Rerun has two “spaces” you’re always juggling:
+
+- **Entity paths**: strings like `world/robot/camera/rgb` (how data is organized/browsed).
+- **Transform frames**: names like `base_link`, `camera_optical` (how motion is defined).
+
+In DimOS on `dev`:
+- TF frames come from the TF system (`Transform.frame_id` / `Transform.child_frame_id`) and are logged via [`Transform.to_rerun()`](../dimos/msgs/geometry_msgs/Transform.py).
+- Visualization entity paths should be treated as **semantic organization** (`world/**`, `metrics/**`, etc).
+
+**Rule of thumb**:
+- Put geometry and sensor data under semantic paths (e.g. `world/robot/**`, `world/nav/**`).
+- Drive motion through TF by emitting transforms via `self.tf.publish(...)`.
+- If you need a semantic entity to “live in” a particular TF frame (e.g. camera frustum under `camera_optical`), attach it explicitly (see how GO2 attaches the camera entity in [`dimos/robot/unitree/connection/go2.py`](../dimos/robot/unitree/connection/go2.py)).
+
+### Cameras: pinhole projection vs lens distortion
+
+- The camera frustum/projection comes from `CameraInfo.to_rerun()` → `rr.Pinhole(...)` (see [`dimos/msgs/sensor_msgs/CameraInfo.py`](../dimos/msgs/sensor_msgs/CameraInfo.py)).
+- Rerun pinholes model **intrinsics** (focal length / principal point / resolution). Lens distortion coefficients are **not** part of the pinhole archetype. If you need distortion-correct visualization, you must undistort upstream and log the undistorted image.
+
 ## Appendix: Where Rerun is used in the codebase
 
 This appendix is an **inventory of every current Rerun touchpoint** in the repository (as of this doc), grouped by role (good for reference).
