@@ -86,10 +86,47 @@ Option 1: Install in a virtualenv
 
 ```sh
 
-uv venv && . .venv/bin/activate
-uv pip install 'dimos[base,unitree]'
-# replay recorded data to test that the system is working
-# IMPORTANT: First replay run will show a black rerun window while 2.4 GB downloads from LFS
+# Clone the repository
+git clone --branch dev --single-branch https://github.com/dimensionalOS/dimos.git
+cd dimos
+
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+sudo apt install portaudio19-dev python3-pyaudio
+
+# Install LFS
+sudo apt install git-lfs
+git lfs install
+
+# Install torch and torchvision if not already installed
+# Example CUDA 11.7, Pytorch 2.0.1 (replace with your required pytorch version if different)
+pip install torch==2.0.1 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+```
+
+#### Install dependencies
+```bash
+# CPU only (reccomended to attempt first)
+uv sync --extra cpu --extra dev
+
+# CUDA install
+uv sync --extra cuda --extra dev
+
+# Jetson Jetpack 6.2
+uv sync --extra jetson-jp6-cuda126
+
+# Copy and configure environment variables
+cp default.env .env
+```
+
+#### Test the install
+```bash
+pytest -s dimos/
+```
+
+#### Test Dimensional with a replay UnitreeGo2 stream (no robot required)
+```bash
 dimos --replay run unitree-go2
 ```
 
