@@ -36,18 +36,6 @@ all_blueprints = {
     "unitree-g1-joystick": "dimos.robot.unitree_webrtc.unitree_g1_blueprints:with_joystick",
     "unitree-g1-full": "dimos.robot.unitree_webrtc.unitree_g1_blueprints:full_featured",
     "unitree-g1-detection": "dimos.robot.unitree_webrtc.unitree_g1_blueprints:detection",
-    # xArm manipulator blueprints
-    "xarm-servo": "dimos.hardware.manipulators.xarm.blueprints:xarm_servo",
-    "xarm5-servo": "dimos.hardware.manipulators.xarm.blueprints:xarm5_servo",
-    "xarm7-servo": "dimos.hardware.manipulators.xarm.blueprints:xarm7_servo",
-    "xarm7-trajectory": "dimos.hardware.manipulators.xarm.blueprints:xarm7_trajectory",
-    "xarm-cartesian": "dimos.hardware.manipulators.xarm.blueprints:xarm_cartesian",
-    "xarm-trajectory": "dimos.hardware.manipulators.xarm.blueprints:xarm_trajectory",
-    "xarm-dual": "dimos.hardware.manipulators.xarm.blueprints:xarm_dual",
-    "xarm-dual-trajectory": "dimos.hardware.manipulators.xarm.blueprints:xarm_dual_trajectory",
-    # Piper manipulator blueprints
-    "piper-servo": "dimos.hardware.manipulators.piper.blueprints:piper_servo",
-    "piper-trajectory": "dimos.hardware.manipulators.piper.blueprints:piper_trajectory",
     # Control orchestrator blueprints
     "orchestrator-mock": "dimos.control.blueprints:orchestrator_mock",
     "orchestrator-xarm7": "dimos.control.blueprints:orchestrator_xarm7",
@@ -95,10 +83,6 @@ all_modules = {
     "web_input": "dimos.agents.cli.web",
     # Control orchestrator module
     "control_orchestrator": "dimos.control.orchestrator",
-    # xArm manipulator modules
-    "xarm_driver": "dimos.hardware.manipulators.xarm.arm",
-    "cartesian_motion_controller": "dimos.manipulation.control.servo_control.cartesian_motion_controller",
-    "joint_trajectory_controller": "dimos.manipulation.control.trajectory_controller.joint_trajectory_controller",
 }
 
 

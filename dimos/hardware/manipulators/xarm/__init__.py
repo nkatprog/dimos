@@ -12,41 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""XArm manipulator driver.
+"""XArm manipulator hardware backend.
 
 Usage:
-    >>> from dimos.hardware.manipulators.xarm import XArm
-    >>> arm = XArm(ip="192.168.1.185", dof=6)
-    >>> arm.start()
-    >>> arm.enable_servos()
-    >>> arm.move_joint([0, 0, 0, 0, 0, 0])
+    >>> from dimos.hardware.manipulators.xarm import XArmBackend
+    >>> backend = XArmBackend(ip="192.168.1.185", dof=6)
+    >>> backend.connect()
+    >>> positions = backend.read_joint_positions()
 """
 
-from dimos.hardware.manipulators.xarm.arm import XArm, XArmConfig, xarm
 from dimos.hardware.manipulators.xarm.backend import XArmBackend
 
-# Backwards compatibility alias
-XArmDriver = XArm
-from dimos.hardware.manipulators.xarm.blueprints import (
-    xarm5_servo,
-    xarm7_servo,
-    xarm7_trajectory,
-    xarm_cartesian,
-    xarm_servo,
-    xarm_trajectory,
-)
-
-__all__ = [
-    "XArm",
-    "XArmBackend",
-    "XArmConfig",
-    "XArmDriver",  # Backwards compatibility alias
-    "xarm",
-    "xarm5_servo",
-    "xarm7_servo",
-    "xarm7_trajectory",
-    "xarm_cartesian",
-    # Blueprints
-    "xarm_servo",
-    "xarm_trajectory",
-]
+__all__ = ["XArmBackend"]

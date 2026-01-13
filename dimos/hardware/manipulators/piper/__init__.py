@@ -12,23 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Piper manipulator driver.
+"""Piper manipulator hardware backend.
 
 Usage:
-    >>> from dimos.hardware.manipulators.piper import Piper
-    >>> arm = Piper(can_port="can0")
-    >>> arm.start()
-    >>> arm.enable_servos()
-    >>> arm.move_joint([0, 0, 0, 0, 0, 0])
-
-Testing:
-    >>> from dimos.hardware.manipulators.mock import MockBackend
-    >>> from dimos.hardware.manipulators.piper import Piper
-    >>> arm = Piper(backend=MockBackend())
-    >>> arm.start()  # No hardware needed!
+    >>> from dimos.hardware.manipulators.piper import PiperBackend
+    >>> backend = PiperBackend(can_port="can0")
+    >>> backend.connect()
+    >>> positions = backend.read_joint_positions()
 """
 
-from dimos.hardware.manipulators.piper.arm import Piper, PiperConfig, piper
 from dimos.hardware.manipulators.piper.backend import PiperBackend
 
-__all__ = ["Piper", "PiperBackend", "PiperConfig", "piper"]
+__all__ = ["PiperBackend"]
