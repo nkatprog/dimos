@@ -128,7 +128,7 @@ except (ConnectionError, ImportError):
     print("Redis not available")
 
 
-from dimos.protocol.pubsub.rospubsub import ROS, ROS_AVAILABLE, ROSTopic
+from dimos.protocol.pubsub.rospubsub import ROS_AVAILABLE, RawROS, ROSTopic
 
 if ROS_AVAILABLE:
     from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
@@ -142,7 +142,7 @@ if ROS_AVAILABLE:
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=5000,
         )
-        ros_pubsub = ROS(node_name="benchmark_ros_best_effort", qos=qos)
+        ros_pubsub = RawROS(node_name="benchmark_ros_best_effort", qos=qos)
         ros_pubsub.start()
         yield ros_pubsub
         ros_pubsub.stop()
@@ -155,7 +155,7 @@ if ROS_AVAILABLE:
             durability=QoSDurabilityPolicy.VOLATILE,
             depth=5000,
         )
-        ros_pubsub = ROS(node_name="benchmark_ros_reliable", qos=qos)
+        ros_pubsub = RawROS(node_name="benchmark_ros_reliable", qos=qos)
         ros_pubsub.start()
         yield ros_pubsub
         ros_pubsub.stop()

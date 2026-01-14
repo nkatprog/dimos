@@ -35,7 +35,7 @@ except ImportError:
     SingleThreadedExecutor = None  # type: ignore[assignment, misc]
     Node = None  # type: ignore[assignment, misc]
 
-from dimos.protocol.pubsub.spec import PubSub
+from dimos.protocol.pubsub.spec import MsgT, PubSub, PubSubEncoderMixin, TopicT
 
 
 @dataclass
@@ -44,9 +44,10 @@ class ROSTopic:
 
     topic: str
     ros_type: type
+    qos: "QoSProfile | None" = None  # Optional per-topic QoS override
 
 
-class ROS(PubSub[ROSTopic, Any]):
+class RawROS(PubSub[ROSTopic, Any]):
     """ROS 2 PubSub implementation following the PubSub spec.
 
     This allows direct comparison of ROS messaging performance against
@@ -139,8 +140,9 @@ class ROS(PubSub[ROSTopic, Any]):
     def _get_or_create_publisher(self, topic: ROSTopic) -> Any:
         """Get existing publisher or create a new one."""
         if topic.topic not in self._publishers:
+            qos = topic.qos if topic.qos is not None else self._qos
             self._publishers[topic.topic] = self._node.create_publisher(
-                topic.ros_type, topic.topic, self._qos
+                topic.ros_type, topic.topic, qos
             )
         return self._publishers[topic.topic]
 
@@ -177,8 +179,9 @@ class ROS(PubSub[ROSTopic, Any]):
             def ros_callback(msg: Any) -> None:
                 callback(msg, topic)
 
+            qos = topic.qos if topic.qos is not None else self._qos
             subscription = self._node.create_subscription(
-                topic.ros_type, topic.topic, ros_callback, self._qos
+                topic.ros_type, topic.topic, ros_callback, qos
             )
 
             if topic.topic not in self._subscriptions:
@@ -197,3 +200,22 @@ class ROS(PubSub[ROSTopic, Any]):
                             self._node.destroy_subscription(subscription)
 
             return unsubscribe
+
+
+class LCM2ROSMixin(PubSubEncoderMixin[TopicT, MsgT]):
+    def encode(self, msg: MsgT, *_: TopicT):
+        # needs to encode dimos.msgs... msg to equivalent ros msg
+        ...
+
+    def decode(self, msg, _: TopicT) -> MsgT:
+        # needs to decode ros msg to equivalent dimos.msgs... msg
+        ...
+
+
+class DimosRos(
+    RawRos,
+    LCM2ROSMixin,
+): ...
+
+
+ROS = DimosRos

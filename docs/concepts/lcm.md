@@ -140,12 +140,12 @@ Raw binary transport: decoded ↗ Vector (Vector([1. 2. 3.]))
 
 Dimos provides overlays for common message types:
 
-| Package | Messages |
-|---------|----------|
+| Package         | Messages                                              |
+|-----------------|-------------------------------------------------------|
 | `geometry_msgs` | `Vector3`, `Quaternion`, `Pose`, `Twist`, `Transform` |
-| `sensor_msgs` | `Image`, `PointCloud2`, `CameraInfo`, `LaserScan` |
-| `nav_msgs` | `Odometry`, `Path`, `OccupancyGrid` |
-| `vision_msgs` | `Detection2D`, `Detection3D`, `BoundingBox2D` |
+| `sensor_msgs`   | `Image`, `PointCloud2`, `CameraInfo`, `LaserScan`     |
+| `nav_msgs`      | `Odometry`, `Path`, `OccupancyGrid`                   |
+| `vision_msgs`   | `Detection2D`, `Detection3D`, `BoundingBox2D`         |
 
 Base LCM types (without Dimos extensions) are available in `dimos_lcm.*`.
 
