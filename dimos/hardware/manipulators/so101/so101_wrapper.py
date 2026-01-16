@@ -40,6 +40,7 @@ class SO101SDKWrapper(BaseManipulatorSDK):
         self._connected = False
         self._enabled = False
         self._lock = threading.Lock()
+        self.gripper_max_open_m = 0.1
 
         self.port = port
         self.urdf_path = urdf_path
@@ -460,7 +461,6 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             "cmd_num": 0,
         }
 
-    # Sanjay see if this is possible
     def get_error_code(self) -> int:
         """Get current error code.
 
@@ -606,8 +606,9 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             return None
 
         with self._lock:
-            raw_pos = float(self.bus.read("Present_Position", self.gripper_name))
-        return max(0.0, min(0.1, raw_pos * 0.001))
+            raw = float(self.bus.read("Present_Position", self.gripper_name))
+            pos_m = (raw / 100.0) * self.gripper_max_open_m
+            return max(0.0, min(self.gripper_max_open_m, pos_m))
 
     def get_cartesian_position(self) -> dict[str, float] | None:
         """Get current end-effector pose.
@@ -669,10 +670,13 @@ class SO101SDKWrapper(BaseManipulatorSDK):
             [quat_xyzw[3], quat_xyzw[0], quat_xyzw[1], quat_xyzw[2]],
             dtype=float,
         )
-
-        q_target_kin_deg = self.kinematics.ik(curr_joint_angles, target_pos, target_quat_wxyz)
-        q_target = np.radians(q_target_kin_deg)
-        self.set_joint_positions(q_target)
+        try:
+            q_target_kin_deg = self.kinematics.ik(curr_joint_angles, target_pos, target_quat_wxyz)
+            q_target = np.radians(q_target_kin_deg)
+            self.set_joint_positions(q_target)
+        except ValueError as e:
+            self.logger.error(f"Value Error Raised: {e}")
+            return False
 
         # Wait if requested
         if wait:
