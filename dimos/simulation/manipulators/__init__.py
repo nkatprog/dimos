@@ -22,7 +22,7 @@ from dimos.simulation.manipulators.sim_manip_interface import SimManipInterface
 from dimos.simulation.manipulators.sim_module import (
     SimulationModule,
     SimulationModuleConfig,
-    simulation_module,
+    simulation,
 )
 
 __all__ = [
@@ -31,5 +31,5 @@ __all__ = [
     "SimManipInterface",
     "SimulationModule",
     "SimulationModuleConfig",
-    "simulation_module",
+    "simulation",
 ]

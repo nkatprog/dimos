@@ -20,13 +20,13 @@ from dimos.msgs.sensor_msgs import (  # type: ignore[attr-defined]
     RobotState,
 )
 from dimos.msgs.trajectory_msgs import JointTrajectory
-from dimos.simulation.manipulators.mujoco_driver import mujoco_sim
-from dimos.simulation.manipulators.sim_module import simulation_module
+from dimos.simulation.manipulators.sim_module import simulation
 
-xarm7_trajectory_sim = mujoco_sim(
-    robot="xarm7_mj_description",
+xarm7_trajectory_sim = simulation(
+    engine="mujoco",
+    robot="xarm7",
     config_path=None,
-    headless=False,
+    headless=True,
 ).transports(
     {
         ("joint_state", JointState): LCMTransport("/xarm/joint_states", JointState),
@@ -40,7 +40,7 @@ xarm7_trajectory_sim = mujoco_sim(
 
 
 __all__ = [
-    "simulation_module",
+    "simulation",
     "xarm7_trajectory_sim",
 ]
 

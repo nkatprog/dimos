@@ -249,7 +249,7 @@ class SimulationModule(Module[SimulationModuleConfig]):
 
 def get_blueprint() -> dict[str, Any]:
     return {
-        "name": "SimulationModule",
+        "name": "simulation",
         "class": SimulationModule,
         "config": {
             "engine": None,
@@ -268,11 +268,11 @@ def get_blueprint() -> dict[str, Any]:
     }
 
 
-simulation_module = SimulationModule.blueprint
+simulation = SimulationModule.blueprint
 
 __all__ = [
     "SimulationModule",
     "SimulationModuleConfig",
     "get_blueprint",
-    "simulation_module",
+    "simulation",
 ]
