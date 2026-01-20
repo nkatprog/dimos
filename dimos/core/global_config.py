@@ -33,7 +33,7 @@ class GlobalConfig(BaseSettings):
     replay: bool = False
     rerun_enabled: bool = True
     rerun_server_addr: str | None = None
-    viewer_backend: ViewerBackend = "rerun-native"
+    viewer_backend: ViewerBackend = "rerun-web"
     n_dask_workers: int = 2
     memory_limit: str = "auto"
     mujoco_camera_position: str | None = None
@@ -44,6 +44,14 @@ class GlobalConfig(BaseSettings):
     mujoco_start_pos: str = "-1.0, 1.0"
     mujoco_steps_per_frame: int = 7
     robot_model: str | None = None
+    # Optional: name of a MuJoCo "bundle" that selects the robot MJCF + policy together.
+    # If set, Dimos MuJoCo sim will prefer:
+    # - data/mujoco_sim/{mujoco_profile}.xml
+    # - data/mujoco_sim/{mujoco_profile}_policy.onnx
+    mujoco_profile: str | None = None
+    # Enable lightweight timing breakdown logs from the MuJoCo subprocess (physics/render/pcd/policy).
+    mujoco_profiler: bool = False
+    mujoco_profiler_interval_s: float = 2.0
     robot_width: float = 0.3
     robot_rotation_diameter: float = 0.6
     planner_strategy: NavigationStrategy = "simple"

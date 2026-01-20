@@ -23,7 +23,7 @@ name = "dimos"
 authors = [
     {name = "Dimensional Team", email = "build@dimensionalOS.com"},
 ]
-version = "0.0.7"
+version = "0.0.8"
 description = "Powering agentive generalist robotics"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -31,6 +31,7 @@ readme = "README.md"
 dependencies = [
     # Transport Protocols
     "dimos-lcm",
+    "cyclonedds>=0.10.5",
     "PyTurboJPEG==1.8.2",
 
     # Core
@@ -60,7 +61,6 @@ dependencies = [
     "terminaltexteffects==0.12.2",
     "typer>=0.19.2,<1",
     "plotext==5.3.2",
-
     # Used for calculating the occupancy map.
     "numba>=0.60.0",    # First version supporting Python 3.12
     "llvmlite>=0.42.0", # Required by numba 0.60+
