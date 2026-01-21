@@ -15,6 +15,7 @@
 
 from pathlib import Path
 import tempfile
+import uuid
 
 import pytest
 
@@ -42,14 +43,56 @@ def make_sqlite_store(tmpdir: str) -> SensorStore[str]:
     return SqliteStore[str](Path(tmpdir) / "test.db")
 
 
-@pytest.mark.parametrize(
-    "store_factory,store_name",
-    [
-        (lambda _: make_in_memory_store(), "InMemoryStore"),
-        (lambda tmpdir: make_pickle_dir_store(tmpdir), "PickleDirStore"),
-        (lambda tmpdir: make_sqlite_store(tmpdir), "SqliteStore"),
-    ],
-)
+# Base test data (always available)
+testdata: list[tuple[object, str]] = [
+    (lambda _: make_in_memory_store(), "InMemoryStore"),
+    (lambda tmpdir: make_pickle_dir_store(tmpdir), "PickleDirStore"),
+    (lambda tmpdir: make_sqlite_store(tmpdir), "SqliteStore"),
+]
+
+# Track postgres tables to clean up
+_postgres_tables: list[str] = []
+
+try:
+    import psycopg2
+
+    from dimos.memory.sensor.postgres import PostgresStore
+
+    # Test connection
+    _test_conn = psycopg2.connect(dbname="dimensional")
+    _test_conn.close()
+
+    def make_postgres_store(_tmpdir: str) -> SensorStore[str]:
+        """Create PostgresStore with unique table name."""
+        table = f"test_{uuid.uuid4().hex[:8]}"
+        _postgres_tables.append(table)
+        store = PostgresStore[str](table)
+        store.start()
+        return store
+
+    testdata.append((lambda tmpdir: make_postgres_store(tmpdir), "PostgresStore"))
+
+    @pytest.fixture(autouse=True)
+    def cleanup_postgres_tables():
+        """Clean up postgres test tables after each test."""
+        yield
+        if _postgres_tables:
+            try:
+                conn = psycopg2.connect(dbname="dimensional")
+                conn.autocommit = True
+                with conn.cursor() as cur:
+                    for table in _postgres_tables:
+                        cur.execute(f"DROP TABLE IF EXISTS {table}")
+                conn.close()
+            except Exception:
+                pass  # Ignore cleanup errors
+            _postgres_tables.clear()
+
+except Exception:
+    print("PostgreSQL not available")
+
+
+@pytest.mark.parametrize("store_factory,store_name", testdata)
 class TestSensorStore:
     """Parametrized tests for all SensorStore implementations."""
 

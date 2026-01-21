@@ -15,6 +15,14 @@
 
 from dimos.memory.sensor.base import InMemoryStore, SensorStore
 from dimos.memory.sensor.pickledir import PickleDirStore
+from dimos.memory.sensor.postgres import PostgresStore, reset_db
 from dimos.memory.sensor.sqlite import SqliteStore
 
-__all__ = ["InMemoryStore", "PickleDirStore", "SensorStore", "SqliteStore"]
+__all__ = [
+    "InMemoryStore",
+    "PickleDirStore",
+    "PostgresStore",
+    "SensorStore",
+    "SqliteStore",
+    "reset_db",
+]
