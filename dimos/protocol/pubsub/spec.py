@@ -28,9 +28,15 @@ class PubSubBaseMixin(Generic[TopicT, MsgT]):
     Depends on the basic publish and subscribe methods being implemented.
     """
 
+    def subscribe(
+        self, topic: TopicT, callback: Callable[[MsgT, TopicT], None]
+    ) -> Callable[[], None]:
+        """Subscribe to a topic. Implemented by subclasses."""
+        raise NotImplementedError
+
     @dataclass(slots=True)
     class _Subscription:
-        _bus: "PubSub[Any, Any]"
+        _bus: "PubSubBaseMixin[Any, Any]"
         _topic: Any
         _cb: Callable[[Any, Any], None]
         _unsubscribe_fn: Callable[[], None]
@@ -45,8 +51,8 @@ class PubSubBaseMixin(Generic[TopicT, MsgT]):
             self.unsubscribe()
 
     def sub(self, topic: TopicT, cb: Callable[[MsgT, TopicT], None]) -> "_Subscription":
-        unsubscribe_fn = self.subscribe(topic, cb)  # type: ignore[attr-defined]
-        return self._Subscription(self, topic, cb, unsubscribe_fn)  # type: ignore[arg-type]
+        unsubscribe_fn = self.subscribe(topic, cb)
+        return self._Subscription(self, topic, cb, unsubscribe_fn)
 
     async def aiter(self, topic: TopicT, *, max_pending: int | None = None) -> AsyncIterator[MsgT]:
         q: asyncio.Queue[MsgT] = asyncio.Queue(maxsize=max_pending or 0)
@@ -54,7 +60,7 @@ class PubSubBaseMixin(Generic[TopicT, MsgT]):
         def _cb(msg: MsgT, topic: TopicT) -> None:
             q.put_nowait(msg)
 
-        unsubscribe_fn = self.subscribe(topic, _cb)  # type: ignore[attr-defined]
+        unsubscribe_fn = self.subscribe(topic, _cb)
         try:
             while True:
                 yield await q.get()
@@ -70,7 +76,7 @@ class PubSubBaseMixin(Generic[TopicT, MsgT]):
         def _queue_cb(msg: MsgT, topic: TopicT) -> None:
             q.put_nowait(msg)
 
-        unsubscribe_fn = self.subscribe(topic, _queue_cb)  # type: ignore[attr-defined]
+        unsubscribe_fn = self.subscribe(topic, _queue_cb)
         try:
             yield q
         finally:
