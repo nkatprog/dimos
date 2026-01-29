@@ -121,12 +121,16 @@ class AllPubSub(PubSub[TopicT, MsgT], ABC):
 
     def subscribe_new_topics(self, callback: Callable[[TopicT], Any]) -> Callable[[], None]:
         """Discover new topics by tracking seen topics from subscribe_all."""
+        import threading
+
         seen: set[TopicT] = set()
+        lock = threading.Lock()
 
         def on_msg(msg: MsgT, topic: TopicT) -> None:
-            if topic not in seen:
-                seen.add(topic)
-                callback(topic)
+            with lock:
+                if topic not in seen:
+                    seen.add(topic)
+                    callback(topic)
 
         return self.subscribe_all(on_msg)
 
@@ -145,17 +149,23 @@ class DiscoveryPubSub(PubSub[TopicT, MsgT], ABC):
 
     def subscribe_all(self, callback: Callable[[MsgT, TopicT], Any]) -> Callable[[], None]:
         """Subscribe to all topics by subscribing to each discovered topic."""
+        import threading
+
         subscriptions: list[Callable[[], None]] = []
+        lock = threading.Lock()
 
         def on_new_topic(topic: TopicT) -> None:
             unsub = self.subscribe(topic, callback)
-            subscriptions.append(unsub)
+            with lock:
+                subscriptions.append(unsub)
 
         discovery_unsub = self.subscribe_new_topics(on_new_topic)
 
         def unsubscribe_all() -> None:
             discovery_unsub()
-            for unsub in subscriptions:
+            with lock:
+                subs = subscriptions.copy()
+            for unsub in subs:
                 unsub()
 
         return unsubscribe_all
