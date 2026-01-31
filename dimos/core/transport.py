@@ -37,6 +37,18 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")  # type: ignore[misc]
 
+# TODO
+# Transports need to be rewritten and simplified,
+#
+# there is no need for them to get a reference to "a stream"
+# this is a legacy from dask transports.
+#
+# new transport should literally have 2 functions (next to start/stop)
+# "send(msg)" and "receive(callback)" and that's all
+#
+# we can also consider pubsubs conforming directly to Transport specs
+# and removing PubSubTransport glue entirely
+
 
 class PubSubTransport(Transport[T]):
     topic: Any

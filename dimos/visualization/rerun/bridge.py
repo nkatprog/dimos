@@ -24,6 +24,7 @@ from reactivex.disposable import Disposable
 from dimos.core import Module, rpc
 from dimos.core.module import ModuleConfig
 from dimos.protocol.pubsub.impl.lcmpubsub import LCM
+from dimos.protocol.pubsub.spec import Glob
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
@@ -36,11 +37,31 @@ if TYPE_CHECKING:
 ViewerMode = Literal["native", "web", "none"]
 
 
+# Notes on this system
+#
+# In the future it would be nice if modules can annotate their individual OUTs with (general or specific)
+# hints related to their visualization
+#
+# so stuff like color, update frequency etc (some Image needs to be rendered on the 3d floor like occupancy grid)
+# some other image is an image to be streamed into a specific 2D view etc.
+#
+# to achieve this we'd feed a full blueprint into the rerun bridge.
+# rerun bridge can then inspect all transports used, all modules with their outs,
+# automatically spy an all the transports and read visualization hints
+#
+# this is the correct implementation.
+# temporarily we are using these "sideloading" transforms={} to define custom to_rerun methods for specific topics
+# as well as pubsubs to specify which protocols to listen to.
+
+
 @dataclass
 class Config(ModuleConfig):
     """Configuration for RerunBridgeModule."""
 
-    spy: list[SubscribeAllCapable[Any, Any]] = field(default_factory=lambda: [LCM(autoconf=True)])
+    pubsubs: list[SubscribeAllCapable[Any, Any]] = (
+        field(default_factory=lambda: [LCM(autoconf=True)]),
+    )
+
     entity_prefix: str = "world"
     topic_to_entity: Callable[[Any], str] | None = None
     viewer_mode: ViewerMode = "native"
@@ -148,9 +169,8 @@ def main() -> None:
     bridge = RerunBridgeModule(
         viewer_mode=args.viewer_mode,
         memory_limit=args.memory_limit,
-        #        spy={
-        #            LCM: {"/color_image": {"mode": "mesh"}},
-        #        },
+        pubsubs=[LCM(autoconf=True)],
+        transforms={Glob("**/costmap/**#Image"): lambda Image: Image.to_rerun(something=3)},
     )
     bridge.start()
 
