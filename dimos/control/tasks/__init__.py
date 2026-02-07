@@ -14,16 +14,10 @@
 
 """Task implementations for the ControlCoordinator."""
 
-_HAS_PINOCCHIO = True
-try:
-    from dimos.control.tasks.cartesian_ik_task import (
-        CartesianIKTask,
-        CartesianIKTaskConfig,
-    )
-except ModuleNotFoundError as exc:
-    if exc.name != "pinocchio":
-        raise
-    _HAS_PINOCCHIO = False
+from dimos.control.tasks.cartesian_ik_task import (
+    CartesianIKTask,
+    CartesianIKTaskConfig,
+)
 from dimos.control.tasks.servo_task import (
     JointServoTask,
     JointServoTaskConfig,
@@ -38,6 +32,8 @@ from dimos.control.tasks.velocity_task import (
 )
 
 __all__ = [
+    "CartesianIKTask",
+    "CartesianIKTaskConfig",
     "JointServoTask",
     "JointServoTaskConfig",
     "JointTrajectoryTask",
@@ -45,11 +41,3 @@ __all__ = [
     "JointVelocityTask",
     "JointVelocityTaskConfig",
 ]
-
-if _HAS_PINOCCHIO:
-    __all__.extend(
-        [
-            "CartesianIKTask",
-            "CartesianIKTaskConfig",
-        ]
-    )
