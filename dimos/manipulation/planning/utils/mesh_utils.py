@@ -133,7 +133,7 @@ def _process_xacro(
 ) -> str:
     """Process xacro file to URDF."""
     try:
-        import xacro  # type: ignore[import-not-found]
+        import xacro  # type: ignore[import-not-found,import-untyped]
     except ImportError:
         raise ImportError(
             "xacro is required for processing .xacro files. Install with: pip install xacro"
