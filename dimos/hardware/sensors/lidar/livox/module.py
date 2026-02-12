@@ -33,15 +33,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
+from dimos.core import Out  # noqa: TC001
 from dimos.core.native_module import NativeModule, NativeModuleConfig
+from dimos.msgs.sensor_msgs.Imu import Imu  # noqa: TC001
+from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2  # noqa: TC001
 from dimos.spec import perception
-
-if TYPE_CHECKING:
-    from dimos.core import Out
-    from dimos.msgs.sensor_msgs.Imu import Imu
-    from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 
 _DEFAULT_EXECUTABLE = str(Path(__file__).parent / "cpp" / "build" / "mid360_native")
 

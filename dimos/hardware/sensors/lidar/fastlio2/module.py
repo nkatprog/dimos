@@ -34,14 +34,11 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import tempfile
-from typing import TYPE_CHECKING
 
+from dimos.core import Out  # noqa: TC001
 from dimos.core.native_module import NativeModule, NativeModuleConfig
-
-if TYPE_CHECKING:
-    from dimos.core import Out
-    from dimos.msgs.nav_msgs.Odometry import Odometry
-    from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
+from dimos.msgs.nav_msgs.Odometry import Odometry  # noqa: TC001
+from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2  # noqa: TC001
 
 _DEFAULT_EXECUTABLE = str(Path(__file__).parent / "cpp" / "build" / "fastlio2_native")
 _DEFAULT_CONFIG = str(Path(__file__).parent / "cpp" / "config" / "mid360.json")
