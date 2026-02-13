@@ -35,6 +35,18 @@ from pathlib import Path
 
 from dimos.core import Out  # noqa: TC001
 from dimos.core.native_module import NativeModule, NativeModuleConfig
+from dimos.hardware.sensors.lidar.livox.ports import (
+    SDK_CMD_DATA_PORT,
+    SDK_HOST_CMD_DATA_PORT,
+    SDK_HOST_IMU_DATA_PORT,
+    SDK_HOST_LOG_DATA_PORT,
+    SDK_HOST_POINT_DATA_PORT,
+    SDK_HOST_PUSH_MSG_PORT,
+    SDK_IMU_DATA_PORT,
+    SDK_LOG_DATA_PORT,
+    SDK_POINT_DATA_PORT,
+    SDK_PUSH_MSG_PORT,
+)
 from dimos.msgs.nav_msgs.Odometry import Odometry  # noqa: TC001
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2  # noqa: TC001
 from dimos.spec import mapping, perception
@@ -80,17 +92,17 @@ class FastLio2Config(NativeModuleConfig):
     # C++ binary reads YAML directly via yaml-cpp
     config: str = "mid360.yaml"
 
-    # SDK port configuration (for multi-sensor setups)
-    cmd_data_port: int = 56100
-    push_msg_port: int = 56200
-    point_data_port: int = 56300
-    imu_data_port: int = 56400
-    log_data_port: int = 56500
-    host_cmd_data_port: int = 56101
-    host_push_msg_port: int = 56201
-    host_point_data_port: int = 56301
-    host_imu_data_port: int = 56401
-    host_log_data_port: int = 56501
+    # SDK port configuration (see livox/ports.py for defaults)
+    cmd_data_port: int = SDK_CMD_DATA_PORT
+    push_msg_port: int = SDK_PUSH_MSG_PORT
+    point_data_port: int = SDK_POINT_DATA_PORT
+    imu_data_port: int = SDK_IMU_DATA_PORT
+    log_data_port: int = SDK_LOG_DATA_PORT
+    host_cmd_data_port: int = SDK_HOST_CMD_DATA_PORT
+    host_push_msg_port: int = SDK_HOST_PUSH_MSG_PORT
+    host_point_data_port: int = SDK_HOST_POINT_DATA_PORT
+    host_imu_data_port: int = SDK_HOST_IMU_DATA_PORT
+    host_log_data_port: int = SDK_HOST_LOG_DATA_PORT
 
     # Resolved in __post_init__, passed as --config_path to the binary
     config_path: str | None = None

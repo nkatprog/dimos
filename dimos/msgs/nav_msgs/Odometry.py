@@ -39,11 +39,6 @@ OdometryConvertable: TypeAlias = (
 )
 
 
-def sec_nsec(ts):  # type: ignore[no-untyped-def]
-    s = int(ts)
-    return [s, int((ts - s) * 1_000_000_000)]
-
-
 class Odometry(LCMOdometry, Timestamped):  # type: ignore[misc]
     pose: PoseWithCovariance
     twist: TwistWithCovariance
@@ -276,7 +271,7 @@ class Odometry(LCMOdometry, Timestamped):  # type: ignore[misc]
         lcm_msg = LCMOdometry()
 
         # Set header
-        [lcm_msg.header.stamp.sec, lcm_msg.header.stamp.nsec] = sec_nsec(self.ts)  # type: ignore[no-untyped-call]
+        [lcm_msg.header.stamp.sec, lcm_msg.header.stamp.nsec] = self.ros_timestamp()
         lcm_msg.header.frame_id = self.frame_id
         lcm_msg.child_frame_id = self.child_frame_id
 

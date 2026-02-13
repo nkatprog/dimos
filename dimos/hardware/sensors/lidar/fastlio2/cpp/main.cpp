@@ -73,9 +73,6 @@ static std::vector<custom_messages::CustomPoint> g_accumulated_points;
 static uint64_t g_frame_start_ns = 0;
 static bool g_frame_has_timestamp = false;
 
-// Track whether FastLio has produced a valid result this cycle
-static std::atomic<bool> g_has_new_result{false};
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -344,18 +341,19 @@ int main(int argc, char** argv) {
     float map_max_range = mod.arg_float("map_max_range", 100.0f);
     float map_freq = mod.arg_float("map_freq", 0.0f);
 
-    // SDK network ports
+    // SDK network ports (defaults from SdkPorts struct in livox_sdk_config.hpp)
     livox_common::SdkPorts ports;
-    ports.cmd_data        = mod.arg_int("cmd_data_port", 56100);
-    ports.push_msg        = mod.arg_int("push_msg_port", 56200);
-    ports.point_data      = mod.arg_int("point_data_port", 56300);
-    ports.imu_data        = mod.arg_int("imu_data_port", 56400);
-    ports.log_data        = mod.arg_int("log_data_port", 56500);
-    ports.host_cmd_data   = mod.arg_int("host_cmd_data_port", 56101);
-    ports.host_push_msg   = mod.arg_int("host_push_msg_port", 56201);
-    ports.host_point_data = mod.arg_int("host_point_data_port", 56301);
-    ports.host_imu_data   = mod.arg_int("host_imu_data_port", 56401);
-    ports.host_log_data   = mod.arg_int("host_log_data_port", 56501);
+    const livox_common::SdkPorts port_defaults;
+    ports.cmd_data        = mod.arg_int("cmd_data_port", port_defaults.cmd_data);
+    ports.push_msg        = mod.arg_int("push_msg_port", port_defaults.push_msg);
+    ports.point_data      = mod.arg_int("point_data_port", port_defaults.point_data);
+    ports.imu_data        = mod.arg_int("imu_data_port", port_defaults.imu_data);
+    ports.log_data        = mod.arg_int("log_data_port", port_defaults.log_data);
+    ports.host_cmd_data   = mod.arg_int("host_cmd_data_port", port_defaults.host_cmd_data);
+    ports.host_push_msg   = mod.arg_int("host_push_msg_port", port_defaults.host_push_msg);
+    ports.host_point_data = mod.arg_int("host_point_data_port", port_defaults.host_point_data);
+    ports.host_imu_data   = mod.arg_int("host_imu_data_port", port_defaults.host_imu_data);
+    ports.host_log_data   = mod.arg_int("host_log_data_port", port_defaults.host_log_data);
 
     printf("[fastlio2] Starting FAST-LIO2 + Livox Mid-360 native module\n");
     printf("[fastlio2] lidar topic: %s\n",

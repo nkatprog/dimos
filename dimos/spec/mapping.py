@@ -23,9 +23,5 @@ class GlobalPointcloud(Protocol):
     global_map: Out[PointCloud2]
 
 
-class GlobalMap(Protocol):
-    global_map: Out[OccupancyGrid]
-
-
 class GlobalCostmap(Protocol):
     global_costmap: Out[OccupancyGrid]

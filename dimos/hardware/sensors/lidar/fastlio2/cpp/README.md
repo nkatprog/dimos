@@ -38,7 +38,7 @@ cmake --install build
 
 Binary lands at `result/bin/fastlio2_native` (same location as nix).
 
-If `-DFASTLIO_DIR` is omitted, CMake defaults to `~/coding/FAST-LIO-NON-ROS`.
+If `-DFASTLIO_DIR` is omitted, CMake auto-fetches FAST-LIO-NON-ROS from GitHub.
 
 ## Network setup
 

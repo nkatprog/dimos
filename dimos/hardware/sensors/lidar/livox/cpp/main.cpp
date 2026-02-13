@@ -259,18 +259,19 @@ int main(int argc, char** argv) {
     g_frame_id = mod.arg("frame_id", "lidar_link");
     g_imu_frame_id = mod.arg("imu_frame_id", "imu_link");
 
-    // SDK network ports (configurable for multi-sensor setups)
+    // SDK network ports (defaults from SdkPorts struct in livox_sdk_config.hpp)
     livox_common::SdkPorts ports;
-    ports.cmd_data        = mod.arg_int("cmd_data_port", 56100);
-    ports.push_msg        = mod.arg_int("push_msg_port", 56200);
-    ports.point_data      = mod.arg_int("point_data_port", 56300);
-    ports.imu_data        = mod.arg_int("imu_data_port", 56400);
-    ports.log_data        = mod.arg_int("log_data_port", 56500);
-    ports.host_cmd_data   = mod.arg_int("host_cmd_data_port", 56101);
-    ports.host_push_msg   = mod.arg_int("host_push_msg_port", 56201);
-    ports.host_point_data = mod.arg_int("host_point_data_port", 56301);
-    ports.host_imu_data   = mod.arg_int("host_imu_data_port", 56401);
-    ports.host_log_data   = mod.arg_int("host_log_data_port", 56501);
+    const livox_common::SdkPorts port_defaults;
+    ports.cmd_data        = mod.arg_int("cmd_data_port", port_defaults.cmd_data);
+    ports.push_msg        = mod.arg_int("push_msg_port", port_defaults.push_msg);
+    ports.point_data      = mod.arg_int("point_data_port", port_defaults.point_data);
+    ports.imu_data        = mod.arg_int("imu_data_port", port_defaults.imu_data);
+    ports.log_data        = mod.arg_int("log_data_port", port_defaults.log_data);
+    ports.host_cmd_data   = mod.arg_int("host_cmd_data_port", port_defaults.host_cmd_data);
+    ports.host_push_msg   = mod.arg_int("host_push_msg_port", port_defaults.host_push_msg);
+    ports.host_point_data = mod.arg_int("host_point_data_port", port_defaults.host_point_data);
+    ports.host_imu_data   = mod.arg_int("host_imu_data_port", port_defaults.host_imu_data);
+    ports.host_log_data   = mod.arg_int("host_log_data_port", port_defaults.host_log_data);
 
     printf("[mid360] Starting native Livox Mid-360 module\n");
     printf("[mid360] pointcloud topic: %s\n", g_pointcloud_topic.c_str());
