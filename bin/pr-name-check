@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# names: stash,yashas,alexl,matt,ivan,pauln,mustafa,jeff,yash,ruthwik,jalaj,jing,miguel,christie,juan,unknown
-# types: feat,fix,chore,refactor,docs
 
 set -euo pipefail
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 
-allowed_names="stash yashas alexl matt ivan pauln mustafa jeff yash ruthwik jalaj jing miguel christie juan unknown"
+# based on: https://github.com/dimensionalOS/wiki/wiki
 allowed_types="feat fix chore refactor docs"
+allowed_names="stash ivan pauln alexl mustafa miguel christie ruthwik jalaj yashas yash matt jing juan jeff unknown"
 
 if [[ "$branch" != */*/* ]]; then
   echo "Invalid branch name: '$branch'"
