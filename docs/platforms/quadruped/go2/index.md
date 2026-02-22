@@ -108,6 +108,6 @@ The agent subscribes to camera, LiDAR, and spatial memory streams — it sees wh
 
 - [Navigation Stack](/docs/capabilities/navigation/native/index.md) — column-carving voxel mapping, costmap generation, A* planning
 - [Visualization](/docs/usage/visualization.md) — Rerun, Foxglove, performance tuning
-- [Data Streams](../../../usage/data_streams/) — RxPY streams, backpressure, quality filtering
+- [Data Streams](/docs/usage/data_streams) — RxPY streams, backpressure, quality filtering
 - [Transports](/docs/usage/transports/index.md) — LCM, SHM, DDS
 - [Blueprints](/docs/usage/blueprints.md) — composing modules

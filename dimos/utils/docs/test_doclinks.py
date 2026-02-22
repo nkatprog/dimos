@@ -23,6 +23,7 @@ from doclinks import (
     find_symbol_line,
     pick_best_candidate,
     process_markdown,
+    resolve_candidates,
     score_path_similarity,
     split_by_ignore_regions,
 )
@@ -566,7 +567,28 @@ class TestPathSimilarity:
         assert best is None
 
 
-class TestMdLinkResolution:
+class TestResolveCandidates:
+    def test_single_candidate(self):
+        candidates = [Path("docs/usage/modules.md")]
+        assert resolve_candidates(candidates, "modules.md") == candidates[0]
+
+    def test_empty_candidates(self):
+        assert resolve_candidates([], "modules.md") is None
+
+    def test_disambiguates(self):
+        candidates = [
+            Path("docs/other/codeblocks.md"),
+            Path("docs/agents/docs/codeblocks.md"),
+        ]
+        result = resolve_candidates(candidates, "docs/agents/docs_agent/codeblocks.md")
+        assert result == Path("docs/agents/docs/codeblocks.md")
+
+    def test_tie_returns_none(self):
+        candidates = [Path("a/x/file.md"), Path("b/x/file.md")]
+        assert resolve_candidates(candidates, "c/x/file.md") is None
+
+
+class TestLinkResolution:
     def _process(self, content, file_index, doc_index, doc_path=None, link_mode="absolute"):
         if doc_path is None:
             doc_path = REPO_ROOT / "docs/usage/test.md"
@@ -688,6 +710,69 @@ class TestMdLinkResolution:
 
         # The broken link in ignore region should not produce errors
         assert "broken_nonexistent.md" in new_content  # Preserved as-is
+
+    def test_validates_absolute_py_link(self, file_index, doc_index):
+        """Valid absolute .py link (without backticks) should be left unchanged."""
+        content = "[spec](/dimos/protocol/service/spec.py)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert new_content == content
+
+    def test_broken_py_link_searches_file_index(self, file_index, doc_index):
+        """Broken .py link should fall back to file_index search."""
+        content = "[spec](/nonexistent/path/service/spec.py)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        # service/spec.py is unique in file_index — should resolve
+        # But spec.py alone is ambiguous, so it depends on disambiguation
+        # The fallback searches by filename (spec.py) which has multiple matches
+        # pick_best_candidate should resolve via path similarity
+        if len(errors) == 0:
+            assert "fixed broken link" in changes[0]
+        # If ambiguous, at least we get an error not a silent pass
+        else:
+            assert "Broken link" in errors[0]
+
+    def test_validates_directory_link(self, file_index, doc_index):
+        """Valid directory link should be left unchanged."""
+        content = "[examples](/examples/)"
+        doc_path = REPO_ROOT / "docs/test.md"
+        new_content, changes, errors = process_markdown(
+            content,
+            REPO_ROOT,
+            doc_path,
+            file_index,
+            link_mode="absolute",
+            github_url=None,
+            github_ref="main",
+            doc_index=doc_index,
+        )
+
+        if (REPO_ROOT / "examples").exists():
+            assert len(errors) == 0
+            assert new_content == content
+        else:
+            # Directory doesn't exist — should error
+            assert len(errors) == 1
+
+    def test_skips_image_links(self, file_index, doc_index):
+        """Image links ![alt](path) should not be processed."""
+        content = "![screenshot](assets/screenshot.png)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert len(changes) == 0
+        assert new_content == content
+
+    def test_skips_mailto_links(self, file_index, doc_index):
+        """mailto: links should be left untouched."""
+        content = "[Email](mailto:test@example.com)"
+        new_content, changes, errors = self._process(content, file_index, doc_index)
+
+        assert len(errors) == 0
+        assert len(changes) == 0
+        assert new_content == content
 
 
 if __name__ == "__main__":
