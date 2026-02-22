@@ -33,7 +33,7 @@ class ClockSyncConfigurator(SystemConfigurator):
     """
 
     critical = False
-    MAX_OFFSET_SECONDS = 0.1  # 100 ms per issue spec
+    MAX_OFFSET_SECONDS = 0.2  # 200 ms per issue spec
     NTP_SERVER = "pool.ntp.org"
     NTP_PORT = 123
     NTP_TIMEOUT = 2  # seconds
