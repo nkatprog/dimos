@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic
 
 from dimos.protocol.pubsub.spec import MsgT, PubSub, TopicT
-from dimos.utils.human import human_bytes, human_duration
+from dimos.utils.human import human_bytes, human_duration, human_number
 
 MsgGen = Callable[[int], tuple[TopicT, MsgT]]
 
@@ -212,10 +212,7 @@ class BenchmarkResults:
     def print_heatmap(self) -> None:
         """Print msgs/sec heatmap."""
 
-        def fmt(v: float) -> str:
-            return f"{v / 1000:.1f}k" if v >= 1000 else f"{v:.0f}"
-
-        self._print_heatmap("Msgs/sec", lambda r: r.throughput_msgs, fmt)
+        self._print_heatmap("Msgs/sec", lambda r: r.throughput_msgs, human_number)
 
     def print_bandwidth_heatmap(self) -> None:
         """Print bandwidth heatmap."""
