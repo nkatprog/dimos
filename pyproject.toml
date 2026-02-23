@@ -125,6 +125,7 @@ perception = [
     "torchreid==0.2.5",
     "gdown==5.2.0", # needed for our usage of torchreid
     "tensorboard==2.20.0", # needed for our usage of torchreid
+    "einops==0.8.1", # needed by Florence2Model
 ]
 
 unitree = [
