@@ -85,6 +85,10 @@ class TaskConfig:
         priority: Task priority (higher wins arbitration)
         model_path: Path to URDF/MJCF for IK solver (cartesian_ik/teleop_ik only)
         ee_joint_id: End-effector joint ID in model (cartesian_ik/teleop_ik only)
+        hand: "left" or "right" controller hand (teleop_ik only)
+        gripper_joint: Joint name for gripper virtual joint (teleop_ik only)
+        gripper_open_pos: Gripper position at trigger 0.0 (teleop_ik only)
+        gripper_closed_pos: Gripper position at trigger 1.0 (teleop_ik only)
     """
 
     name: str
@@ -95,6 +99,10 @@ class TaskConfig:
     model_path: str | Path | None = None
     ee_joint_id: int = 6
     hand: str = ""  # teleop_ik only: "left" or "right" controller
+    # Teleop IK gripper specific
+    gripper_joint: str | None = None
+    gripper_open_pos: float = 0.85
+    gripper_closed_pos: float = 0.0
 
 
 @dataclass
@@ -223,6 +231,10 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
 
     def _setup_hardware(self, component: HardwareComponent) -> None:
         """Connect and add a single hardware adapter."""
+        if component.hardware_type == HardwareType.GRIPPER:
+            self._setup_gripper_hardware(component)
+            return
+
         adapter: ManipulatorAdapter | TwistBaseAdapter
         if component.hardware_type == HardwareType.BASE:
             adapter = self._create_twist_base_adapter(component)
@@ -240,6 +252,29 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
         except Exception:
             adapter.disconnect()
             raise
+
+    def _setup_gripper_hardware(self, component: HardwareComponent) -> None:
+        """Register a gripper by borrowing the parent arm's adapter.
+
+        The gripper shares the parent manipulator's already-connected adapter.
+        No new connection is made; disconnect() on ConnectedGripper is a no-op.
+        """
+        if not component.parent_hardware_id:
+            raise ValueError(
+                f"Gripper component '{component.hardware_id}' requires parent_hardware_id"
+            )
+
+        with self._hardware_lock:
+            parent = self._hardware.get(component.parent_hardware_id)
+
+        if parent is None:
+            raise ValueError(
+                f"Parent hardware '{component.parent_hardware_id}' not found "
+                f"for gripper '{component.hardware_id}'. "
+                f"Add the parent arm before the gripper."
+            )
+
+        self.add_hardware(parent.adapter, component)
 
     def _create_adapter(self, component: HardwareComponent) -> ManipulatorAdapter:
         """Create a manipulator adapter from component config."""
@@ -328,6 +363,9 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
                     ee_joint_id=cfg.ee_joint_id,
                     priority=cfg.priority,
                     hand=cfg.hand,
+                    gripper_joint=cfg.gripper_joint,
+                    gripper_open_pos=cfg.gripper_open_pos,
+                    gripper_closed_pos=cfg.gripper_closed_pos,
                 ),
             )
 
@@ -345,8 +383,11 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
         component: HardwareComponent,
     ) -> bool:
         """Register a hardware adapter with the coordinator."""
+        is_gripper = component.hardware_type == HardwareType.GRIPPER
         is_base = component.hardware_type == HardwareType.BASE
-        if is_base != isinstance(adapter, TwistBaseAdapter):
+
+        # Grippers reuse their parent arm's ManipulatorAdapter — skip the base/adapter check
+        if not is_gripper and (is_base != isinstance(adapter, TwistBaseAdapter)):
             raise TypeError(
                 f"Hardware type / adapter mismatch for '{component.hardware_id}': "
                 f"hardware_type={component.hardware_type.value} but got "
@@ -358,8 +399,15 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
                 logger.warning(f"Hardware {component.hardware_id} already registered")
                 return False
 
-            if isinstance(adapter, TwistBaseAdapter):
-                connected: ConnectedHardware = ConnectedTwistBase(
+            if is_gripper:
+                from dimos.control.hardware_interface import ConnectedGripper
+
+                connected: ConnectedHardware = ConnectedGripper(
+                    adapter=adapter,  # type: ignore[arg-type]
+                    component=component,
+                )
+            elif isinstance(adapter, TwistBaseAdapter):
+                connected = ConnectedTwistBase(
                     adapter=adapter,
                     component=component,
                 )

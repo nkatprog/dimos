@@ -48,6 +48,9 @@ class HardwareComponent:
         adapter_type: Adapter type ("mock", "xarm", "piper")
         address: Connection address - IP for TCP, port for CAN
         auto_enable: Whether to auto-enable servos
+        parent_hardware_id: For GRIPPER type only — the hardware_id of the
+            manipulator whose adapter provides the gripper interface.
+            The gripper shares the parent's already-connected adapter.
     """
 
     hardware_id: HardwareId
@@ -56,6 +59,19 @@ class HardwareComponent:
     adapter_type: str = "mock"
     address: str | None = None
     auto_enable: bool = True
+    parent_hardware_id: HardwareId | None = None
+
+
+def make_gripper_joint(hardware_id: HardwareId) -> str:
+    """Create the gripper joint name for a hardware device.
+
+    Args:
+        hardware_id: The hardware identifier (e.g., "arm")
+
+    Returns:
+        Joint name like "arm_gripper"
+    """
+    return f"{hardware_id}_gripper"
 
 
 def make_joints(hardware_id: HardwareId, dof: int) -> list[JointName]:
@@ -112,6 +128,7 @@ __all__ = [
     "JointName",
     "JointState",
     "TaskName",
+    "make_gripper_joint",
     "make_joints",
     "make_twist_base_joints",
 ]

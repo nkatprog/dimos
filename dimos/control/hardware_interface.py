@@ -287,7 +287,62 @@ class ConnectedTwistBase(ConnectedHardware):
         return self._twist_adapter.write_velocities(ordered)
 
 
+class ConnectedGripper(ConnectedHardware):
+    """Runtime wrapper for a gripper attached to a manipulator.
+
+    Shares the parent manipulator's adapter but routes read/write
+    through gripper-specific adapter methods (read_gripper_position /
+    write_gripper_position).  Lifecycle (connect / disconnect) is owned
+    by the parent ConnectedHardware — disconnect() is a no-op here.
+
+    Registered as a separate HardwareComponent with hardware_type=GRIPPER
+    so the tick loop treats it uniformly alongside arm joints.
+    """
+
+    def __init__(
+        self,
+        adapter: ManipulatorAdapter,
+        component: HardwareComponent,
+    ) -> None:
+        super().__init__(adapter, component)
+        # Gripper starts at 0 — no need to read current position on init
+        self._last_commanded = {name: 0.0 for name in self._joint_names}
+        self._initialized = True
+
+    def disconnect(self) -> None:
+        """No-op: lifecycle is owned by the parent ConnectedHardware."""
+
+    def read_state(self) -> dict[JointName, JointState]:
+        """Read gripper position via adapter.read_gripper_position()."""
+        from dimos.control.components import JointState
+
+        pos = self._adapter.read_gripper_position()
+        joint_name = self._joint_names[0]
+        return {
+            joint_name: JointState(
+                position=pos if pos is not None else 0.0,
+                velocity=0.0,
+                effort=0.0,
+            )
+        }
+
+    def write_command(self, commands: dict[str, float], _mode: ControlMode) -> bool:
+        """Write gripper position via adapter.write_gripper_position().
+
+        Mode is ignored — gripper is always position-controlled.
+        """
+        joint_name = self._joint_names[0]
+        if joint_name not in commands:
+            return True  # nothing commanded this tick, hold current
+        return self._adapter.write_gripper_position(commands[joint_name])
+
+    def _initialize_last_commanded(self) -> None:
+        """No-op: already initialized in __init__."""
+        self._initialized = True
+
+
 __all__ = [
+    "ConnectedGripper",
     "ConnectedHardware",
     "ConnectedTwistBase",
 ]

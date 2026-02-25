@@ -60,6 +60,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
             "HardwareType",
             "JointName",
             "JointState",
+            "make_gripper_joint",
             "make_joints",
         ],
         "coordinator": [
@@ -68,7 +69,7 @@ __getattr__, __dir__, __all__ = lazy.attach(
             "TaskConfig",
             "control_coordinator",
         ],
-        "hardware_interface": ["ConnectedHardware"],
+        "hardware_interface": ["ConnectedGripper", "ConnectedHardware"],
         "task": [
             "ControlMode",
             "ControlTask",
