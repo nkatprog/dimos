@@ -14,6 +14,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+import logging
 import threading
 from typing import Any, Protocol, runtime_checkable
 
@@ -45,6 +46,9 @@ from dimos.protocol.pubsub.impl.rospubsub_conversion import (
     ros_to_dimos,
 )
 from dimos.protocol.pubsub.spec import DiscoveryPubSub, PubSub
+from dimos.utils.logging_config import setup_logger
+
+logger = setup_logger(level=logging.INFO)
 
 
 @runtime_checkable
@@ -315,23 +319,44 @@ class DimosROS(DiscoveryPubSub[ROSTopic, DimosMsg]):
         stop_event = threading.Event()
 
         def _poll() -> None:
+            logger.info("[DimosROS] topic discovery poll thread started")
             while not stop_event.is_set():
                 node = self._raw._node
-                if node is not None:
-                    for topic_name, type_strings in node.get_topic_names_and_types():
+                if node is None:
+                    logger.debug("[DimosROS] poll: ROS node not ready yet, waiting...")
+                else:
+                    topics = node.get_topic_names_and_types()
+                    logger.debug("[DimosROS] poll: found %d topics on ROS graph", len(topics))
+                    for topic_name, type_strings in topics:
                         if topic_name in seen:
                             continue
+                        matched = False
                         for ros_type_str in type_strings:
                             # "geometry_msgs/msg/PoseStamped" -> "geometry_msgs.PoseStamped"
                             parts = ros_type_str.split("/")
                             msg_name = f"{parts[0]}.{parts[-1]}" if len(parts) >= 2 else None
                             if msg_name and (dimos_type := get_dimos_type(msg_name)) is not None:
                                 seen.add(topic_name)
+                                logger.info(
+                                    "[DimosROS] discovered topic: %s (%s → %s)",
+                                    topic_name,
+                                    ros_type_str,
+                                    dimos_type,
+                                )
                                 callback(ROSTopic(topic_name, dimos_type))
+                                matched = True
                                 break
+                        if not matched and topic_name not in seen:
+                            logger.debug(
+                                "[DimosROS] topic %s skipped — no dimos type for %s",
+                                topic_name,
+                                type_strings,
+                            )
                 stop_event.wait(1.0)
+            logger.info("[DimosROS] topic discovery poll thread stopped")
 
         threading.Thread(target=_poll, daemon=True, name="dimos_ros_discovery").start()
+        logger.info("[DimosROS] subscribe_new_topics: discovery polling started (1s interval)")
         return stop_event.set
 
 
