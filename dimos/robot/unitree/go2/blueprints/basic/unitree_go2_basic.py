@@ -101,9 +101,7 @@ unitree_go2_basic = (
         websocket_vis(),
     )
     .global_config(n_dask_workers=4, robot_model="unitree_go2")
-    .requirements(
-        ClockSyncConfigurator(),
-    )
+    .configurators(ClockSyncConfigurator())
 )
 
 __all__ = [

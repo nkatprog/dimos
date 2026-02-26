@@ -27,6 +27,6 @@ unitree_g1_basic = autoconnect(
     uintree_g1_primitive_no_nav,
     g1_connection(),
     ros_nav(),
-).requirements(ClockSyncConfigurator())
+).configurators(ClockSyncConfigurator())
 
 __all__ = ["unitree_g1_basic"]
