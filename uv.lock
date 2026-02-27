@@ -1745,7 +1745,7 @@ wheels = [
 
 [[package]]
 name = "dimos"
-version = "0.0.10.post1"
+version = "0.0.10.post2"
 source = { editable = "." }
 dependencies = [
     { name = "annotation-protocol" },
@@ -1764,6 +1764,7 @@ dependencies = [
     { name = "pin" },
     { name = "plotext" },
     { name = "plum-dispatch" },
+    { name = "protobuf" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
@@ -2122,6 +2123,7 @@ requires-dist = [
     { name = "plum-dispatch", specifier = "==2.5.7" },
     { name = "plum-dispatch", marker = "extra == 'docker'", specifier = "==2.5.7" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = "==4.2.0" },
+    { name = "protobuf", specifier = ">=6.33.5,<7" },
     { name = "psycopg2-binary", marker = "extra == 'psql'", specifier = ">=2.9.11" },
     { name = "py-spy", marker = "extra == 'dev'" },
     { name = "pydantic" },
