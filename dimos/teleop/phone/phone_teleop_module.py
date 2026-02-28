@@ -40,6 +40,7 @@ from dimos.core.stream import Out
 from dimos.msgs.geometry_msgs import Twist, TwistStamped, Vector3
 from dimos.msgs.std_msgs.Bool import Bool
 from dimos.utils.logging_config import setup_logger
+from dimos.utils.path_utils import get_project_root
 from dimos.web.robot_web_interface import RobotWebInterface
 
 logger = setup_logger()
@@ -198,7 +199,7 @@ class PhoneTeleopModule(Module[PhoneTeleopConfig]):
 
         self._web_server_thread = threading.Thread(
             target=self._web_server.run,
-            kwargs={"ssl": True},
+            kwargs={"ssl": True, "ssl_certs_dir": get_project_root() / "assets" / "teleop_certs"},
             daemon=True,
             name="PhoneTeleopWebServer",
         )

@@ -385,15 +385,14 @@ class FastAPIServer(EdgeIO):
             raise RuntimeError(f"Failed to generate certificates: {result.stderr.decode()}")
         return str(cert_path), str(key_path)
 
-    _DEFAULT_CERTS_DIR = Path.home() / ".dimos" / "ssl_certs"
-
     def run(self, ssl: bool = False, ssl_certs_dir: Path | str | None = None) -> None:
         ssl_certfile = None
         ssl_keyfile = None
 
         if ssl:
-            certs_dir = Path(ssl_certs_dir) if ssl_certs_dir else self._DEFAULT_CERTS_DIR
-            ssl_certfile, ssl_keyfile = self._ensure_certs(certs_dir)
+            if ssl_certs_dir is None:
+                raise ValueError("ssl_certs_dir is required when ssl=True")
+            ssl_certfile, ssl_keyfile = self._ensure_certs(Path(ssl_certs_dir))
 
         config = uvicorn.Config(
             self.app,

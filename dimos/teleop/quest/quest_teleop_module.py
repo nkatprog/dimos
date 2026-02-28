@@ -42,6 +42,7 @@ from dimos.msgs.sensor_msgs import Joy
 from dimos.teleop.quest.quest_types import Buttons, QuestControllerState
 from dimos.teleop.utils.teleop_transforms import webxr_to_robot
 from dimos.utils.logging_config import setup_logger
+from dimos.utils.path_utils import get_project_root
 from dimos.web.robot_web_interface import RobotWebInterface
 
 logger = setup_logger()
@@ -254,7 +255,7 @@ class QuestTeleopModule(Module[QuestTeleopConfig]):
 
         self._web_server_thread = threading.Thread(
             target=self._web_server.run,
-            kwargs={"ssl": True},
+            kwargs={"ssl": True, "ssl_certs_dir": get_project_root() / "assets" / "teleop_certs"},
             daemon=True,
             name="QuestTeleopWebServer",
         )
