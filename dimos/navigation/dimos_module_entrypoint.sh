@@ -1,336 +1,245 @@
 #!/bin/bash
-# Container entrypoint for the DimOS navigation DockerModule.
-# Sets up the ROS environment, starts background navigation services based on
-# ENV vars, then hands off to the DimOS docker_runner which instantiates the
-# actual Python module (ROSNav) via the --payload argument.
-#
-# This script is mounted at /usr/local/bin/dimos_module_entrypoint.sh so that
-# entrypoint changes never require a container rebuild.
-#
-# Environment variables:
-#   MODE                  simulation (default) | unity_sim | hardware | bagfile
-#                         Falls back to HARDWARE_MODE=true → hardware
-#                         unity_sim: same as simulation but also starts the Unity exe;
-#                         crashes at startup if the Unity binary is missing.
-#   BAGFILE_PATH          Path inside the container to a ROS 2 bag directory/
-#                         mcap file.  When set, the bag is played automatically
-#                         with --clock after the nav stack initialises.
-#                         MODE should be set to "bagfile" when using this.
-#   USE_ROUTE_PLANNER     Use the FAR route-planner launch file
-#                         (default: true for simulation, false for hardware/bagfile)
-#   USE_RVIZ              Launch RViz2 when a display socket is present (default: false)
-#   LOCALIZATION_METHOD   SLAM backend: arise_slam (default) | fastlio
-#   ROS_DISTRO            ROS distribution (default: humble)
-#   HARDWARE_MODE         Legacy: "true" → hardware mode. Prefer MODE instead.
-
-# NOTE: no set -e — individual step failures must not abort the whole entrypoint.
-
-# ── X11 diagnostics ───────────────────────────────────────────────────────
-# Usage (from host):
-#   docker exec <container> bash -c 'source /usr/local/bin/dimos_module_entrypoint.sh; why_is_x11_not_working'
-# Or inside the container just run:
-#   why_is_x11_not_working
-why_is_x11_not_working() {
-    local ok=true
-    echo "=== X11 Doctor ==="
-
-    # 1. DISPLAY
-    echo ""
-    echo "--- DISPLAY ---"
-    if [ -z "${DISPLAY:-}" ]; then
-        echo "  FAIL  DISPLAY is not set"
-        ok=false
-    else
-        echo "  OK    DISPLAY=${DISPLAY}"
-    fi
-
-    # 2. X11 unix socket directory
-    echo ""
-    echo "--- /tmp/.X11-unix socket directory ---"
-    if [ ! -d /tmp/.X11-unix ]; then
-        echo "  FAIL  /tmp/.X11-unix does not exist (volume not mounted?)"
-        ok=false
-    else
-        local sockets
-        sockets=$(ls /tmp/.X11-unix 2>/dev/null)
-        if [ -z "$sockets" ]; then
-            echo "  WARN  /tmp/.X11-unix exists but is empty (no display sockets)"
-            ok=false
-        else
-            echo "  OK    /tmp/.X11-unix contents: $sockets"
-        fi
-    fi
-
-    # 3. Socket for the specific DISPLAY
-    echo ""
-    echo "--- Display socket for DISPLAY=${DISPLAY:-<unset>} ---"
-    if [ -n "${DISPLAY:-}" ]; then
-        local display_num
-        display_num=$(echo "${DISPLAY}" | sed 's/.*:\([0-9]*\).*/\1/')
-        local sock="/tmp/.X11-unix/X${display_num}"
-        if [ -S "$sock" ]; then
-            echo "  OK    $sock exists and is a socket"
-            ls -la "$sock"
-        else
-            echo "  FAIL  $sock not found or not a socket"
-            ok=false
-        fi
-    else
-        echo "  SKIP  (DISPLAY not set)"
-    fi
-
-    # 4. XAUTHORITY file
-    echo ""
-    echo "--- XAUTHORITY ---"
-    local xauth_file="${XAUTHORITY:-$HOME/.Xauthority}"
-    if [ -z "${XAUTHORITY:-}" ]; then
-        echo "  WARN  XAUTHORITY env var not set; defaulting to $xauth_file"
-    else
-        echo "  OK    XAUTHORITY=${XAUTHORITY}"
-    fi
-    if [ -f "$xauth_file" ]; then
-        echo "  OK    $xauth_file exists ($(wc -c < "$xauth_file") bytes)"
-        ls -la "$xauth_file"
-    else
-        echo "  FAIL  $xauth_file not found (Xauthority not mounted?)"
-        ok=false
-    fi
-
-    # 5. xauth cookie list
-    echo ""
-    echo "--- xauth cookie entries ---"
-    if command -v xauth >/dev/null 2>&1; then
-        local cookie_out
-        cookie_out=$(XAUTHORITY="$xauth_file" xauth list 2>&1)
-        if [ -z "$cookie_out" ]; then
-            echo "  WARN  xauth list returned no entries (cookie file empty or wrong display)"
-            ok=false
-        else
-            echo "  OK    cookies found:"
-            echo "$cookie_out" | sed 's/^/        /'
-        fi
-    else
-        echo "  WARN  xauth not installed; cannot check cookies"
-    fi
-
-    # 6. Live connection test
-    echo ""
-    echo "--- Live connection test ---"
-    if command -v xdpyinfo >/dev/null 2>&1; then
-        if DISPLAY="${DISPLAY:-:0}" XAUTHORITY="$xauth_file" xdpyinfo >/dev/null 2>&1; then
-            echo "  OK    xdpyinfo connected to ${DISPLAY:-:0} successfully"
-        else
-            echo "  FAIL  xdpyinfo could not connect to ${DISPLAY:-:0}"
-            DISPLAY="${DISPLAY:-:0}" XAUTHORITY="$xauth_file" xdpyinfo 2>&1 | head -5 | sed 's/^/        /'
-            ok=false
-        fi
-    elif command -v xclock >/dev/null 2>&1; then
-        if DISPLAY="${DISPLAY:-:0}" XAUTHORITY="$xauth_file" xclock -display "${DISPLAY:-:0}" &
-           sleep 1 && kill %1 2>/dev/null; then
-            echo "  OK    xclock launched on ${DISPLAY:-:0}"
-        else
-            echo "  FAIL  xclock could not connect"
-            ok=false
-        fi
-    else
-        echo "  SKIP  neither xdpyinfo nor xclock installed; skipping live test"
-        echo "        Install with: apt-get install -y x11-utils"
-    fi
-
-    # 7. Summary
-    echo ""
-    echo "=== Summary ==="
-    if $ok; then
-        echo "  All checks passed — X11 should work."
-    else
-        echo "  One or more checks failed."
-        echo ""
-        echo "  Common fixes:"
-        echo "    • Mount the socket:   -v /tmp/.X11-unix:/tmp/.X11-unix"
-        echo "    • Mount the cookie:   -v \${XAUTHORITY:-\$HOME/.Xauthority}:/tmp/.Xauthority:ro"
-        echo "    • Set env vars:       -e DISPLAY -e XAUTHORITY=/tmp/.Xauthority"
-        echo "    • Allow local X:      xhost +local:  (run on host, less safe)"
-    fi
-    echo ""
-}
-echo '
-source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
-source /ros2_ws/install/setup.bash
-source /opt/dimos-venv/bin/activate
-' > /usr/bin/upp
-chmod +x /usr/bin/upp
 echo '
 source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
 source /ros2_ws/install/setup.bash
 source /opt/dimos-venv/bin/activate
 rosspy
-' > /usr/bin/rosspy
-chmod +x /usr/bin/rosspy
+' > /usr/bin/ross
+chmod +x /usr/bin/ross
 
-# ── Git safe directories ──────────────────────────────────────────────────
-git config --global --add safe.directory /workspace/dimos 2>/dev/null || true
-git config --global --add safe.directory /ros2_ws/src/ros-navigation-autonomy-stack 2>/dev/null || true
+source /opt/dimos-venv/bin/activate
 
-# ── Multicast (required for DimOS LCM pubsub) ─────────────────────────────
-# MulticastConfiguratorLinux.critical=True → SystemExit(1) if not configured
-echo "[entrypoint] Configuring multicast for LCM..."
-ip link set lo multicast on 2>/dev/null \
-    || echo "[entrypoint] NOTE: multicast already enabled on lo"
-ip route add 224.0.0.0/4 dev lo 2>/dev/null \
-    || echo "[entrypoint] NOTE: multicast route already present"
+# Minimal CMU Unity simulation entrypoint.
+# Purpose: bring up Unity + ROS nav stack and keep retrying until Unity sensor
+# topics are actually registered in ROS.
 
-# ── Source ROS ────────────────────────────────────────────────────────────
-echo "[entrypoint] Sourcing ROS ${ROS_DISTRO:-humble}..."
+# Intentionally no `set -e`: transient bridge failures are expected and retried.
+
+STACK_ROOT="/ros2_ws/src/ros-navigation-autonomy-stack"
+UNITY_EXECUTABLE="${STACK_ROOT}/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64"
+UNITY_MESH_DIR="${STACK_ROOT}/src/base_autonomy/vehicle_simulator/mesh/unity"
+
+MODE="${MODE:-unity_sim}"
+USE_ROUTE_PLANNER="${USE_ROUTE_PLANNER:-true}"
+LOCALIZATION_METHOD="${LOCALIZATION_METHOD:-arise_slam}"
+
+UNITY_BRIDGE_CONNECT_TIMEOUT_SEC="${UNITY_BRIDGE_CONNECT_TIMEOUT_SEC:-25}"
+UNITY_BRIDGE_RETRY_INTERVAL_SEC="${UNITY_BRIDGE_RETRY_INTERVAL_SEC:-2}"
+
+ROS_NAV_PID=""
+UNITY_PID=""
+
+cleanup() {
+    if [ -n "$ROS_NAV_PID" ] && kill -0 "$ROS_NAV_PID" 2>/dev/null; then
+        kill -TERM "-$ROS_NAV_PID" 2>/dev/null || kill -TERM "$ROS_NAV_PID" 2>/dev/null || true
+        sleep 1
+        kill -KILL "-$ROS_NAV_PID" 2>/dev/null || kill -KILL "$ROS_NAV_PID" 2>/dev/null || true
+    fi
+
+    if [ -n "$UNITY_PID" ] && kill -0 "$UNITY_PID" 2>/dev/null; then
+        kill -TERM "$UNITY_PID" 2>/dev/null || true
+        sleep 1
+        kill -KILL "$UNITY_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT INT TERM
+
+echo "[entrypoint-min] Sourcing ROS env..."
 source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
 source /ros2_ws/install/setup.bash
 
-# ── Python venv ───────────────────────────────────────────────────────────
-source /opt/dimos-venv/bin/activate
+# Restore small shell helpers expected in this environment.
+cat > /usr/bin/upp <<'EOS'
+#!/bin/bash
+source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
+source /ros2_ws/install/setup.bash
+[ -f /opt/dimos-venv/bin/activate ] && source /opt/dimos-venv/bin/activate
+EOS
+chmod +x /usr/bin/upp
 
-# ── Install dimos from live source ────────────────────────────────────────
-# Keeps the container in sync with host edits without a rebuild.
+cat > /usr/bin/rosspy <<'EOS'
+#!/bin/bash
+source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
+source /ros2_ws/install/setup.bash
+[ -f /opt/dimos-venv/bin/activate ] && source /opt/dimos-venv/bin/activate
+if [ -f /workspace/dimos/bin/rosspy.pyz ]; then
+    exec python3 /workspace/dimos/bin/rosspy.pyz "$@"
+else
+    exec python3 -m dimos.utils.cli.rosspy.run_rosspy "$@"
+fi
+EOS
+chmod +x /usr/bin/rosspy
+
+# docker_runner payload mode imports dimos.* modules from Python.
+# Keep this minimal: activate venv if present and ensure /workspace/dimos is
+# importable even when editable install has not been run yet.
+if [ -f "/opt/dimos-venv/bin/activate" ]; then
+    # shellcheck disable=SC1091
+    source /opt/dimos-venv/bin/activate
+fi
 if [ -d "/workspace/dimos" ]; then
-    echo "[entrypoint] pip install -e /workspace/dimos..."
-    pip install -e /workspace/dimos >/tmp/dimos_pip_install.log 2>&1 || {
-        echo "[entrypoint] WARNING: pip install failed — see /tmp/dimos_pip_install.log"
-    }
+    export PYTHONPATH="/workspace/dimos:${PYTHONPATH:-}"
 fi
 
-# ── DDS / FastDDS config ──────────────────────────────────────────────────
+# Keep DDS config minimal and deterministic.
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/ros2_ws/config/fastdds.xml
 if [ -f "/ros2_ws/config/custom_fastdds.xml" ]; then
     export FASTRTPS_DEFAULT_PROFILES_FILE=/ros2_ws/config/custom_fastdds.xml
+elif [ -f "/ros2_ws/config/fastdds.xml" ]; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE=/ros2_ws/config/fastdds.xml
 fi
 
-# ── Determine operating mode ──────────────────────────────────────────────
-# Priority: MODE env var > HARDWARE_MODE legacy var > default simulation
-if [ -z "${MODE:-}" ]; then
-    if [ "${HARDWARE_MODE:-false}" = "true" ]; then
-        MODE="hardware"
-    else
-        MODE="unity_sim"
-    fi
+if [ ! -d "$STACK_ROOT" ]; then
+    echo "[entrypoint-min] ERROR: stack root not found: $STACK_ROOT"
+    exit 1
 fi
-export MODE
-echo "[entrypoint] MODE=${MODE}"
+cd "$STACK_ROOT"
 
-# ── Optionally launch Unity vehicle_simulator exe ─────────────────────────
-# simulation  — try Unity; silently skip if binary absent (mirrors run_both.sh)
-# unity_sim   — same but hard-exit if binary absent (useful for CI / explicit test)
-UNITY_EXECUTABLE="/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/mesh/unity/environment/Model.x86_64"
-if [ "$MODE" = "unity_sim" ] || [ "$MODE" = "simulation" ]; then
-    if [ -f "$UNITY_EXECUTABLE" ]; then
-        echo "[entrypoint] Starting Unity: $UNITY_EXECUTABLE"
-        "$UNITY_EXECUTABLE" &
-    else
-        echo "[entrypoint] ERROR: Unity executable not found at $UNITY_EXECUTABLE"
-        echo "[entrypoint] Build or download the Unity environment and place it at that path."
+if [ "$USE_ROUTE_PLANNER" = "true" ]; then
+    LAUNCH_FILE="system_simulation_with_route_planner.launch.py"
+else
+    LAUNCH_FILE="system_simulation.launch.py"
+fi
+
+LAUNCH_ARGS="enable_bridge:=false"
+if [ "$LOCALIZATION_METHOD" = "fastlio" ]; then
+    LAUNCH_ARGS="use_fastlio2:=true ${LAUNCH_ARGS}"
+fi
+
+start_unity() {
+    if [ ! -f "$UNITY_EXECUTABLE" ]; then
+        echo "[entrypoint-min] ERROR: Unity executable not found: $UNITY_EXECUTABLE"
         exit 1
     fi
-else
-    echo "[entrypoint] not running Unity simulator"
-fi
 
-# ── Select and launch ROS navigation stack ────────────────────────────────
-# Always started. Launch file is chosen from MODE and USE_ROUTE_PLANNER.
-# Simulation defaults USE_ROUTE_PLANNER=true (mirrors run_both.sh behaviour).
-# Hardware/bagfile default to false; user opts in with USE_ROUTE_PLANNER=true.
-LOCALIZATION_METHOD="${LOCALIZATION_METHOD:-arise_slam}"
+    # These files are expected by CMU/TARE sim assets. Missing files usually
+    # indicate a bad mount and can break downstream map-dependent behavior.
+    for required in map.ply traversable_area.ply; do
+        if [ ! -f "$UNITY_MESH_DIR/$required" ]; then
+            echo "[entrypoint-min] WARNING: missing $UNITY_MESH_DIR/$required"
+        fi
+    done
+
+    echo "[entrypoint-min] Starting Unity: $UNITY_EXECUTABLE"
+    "$UNITY_EXECUTABLE" &
+    UNITY_PID=$!
+    echo "[entrypoint-min] Unity PID: $UNITY_PID"
+}
+
+start_ros_nav_stack() {
+    setsid bash -c "
+        source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
+        source /ros2_ws/install/setup.bash
+        cd ${STACK_ROOT}
+        ros2 launch vehicle_simulator ${LAUNCH_FILE} ${LAUNCH_ARGS}
+    " &
+    ROS_NAV_PID=$!
+    echo "[entrypoint-min] ROS nav stack PID: $ROS_NAV_PID"
+}
+
+stop_ros_nav_stack() {
+    if [ -n "$ROS_NAV_PID" ] && kill -0 "$ROS_NAV_PID" 2>/dev/null; then
+        kill -TERM "-$ROS_NAV_PID" 2>/dev/null || kill -TERM "$ROS_NAV_PID" 2>/dev/null || true
+        for _ in 1 2 3 4 5; do
+            kill -0 "$ROS_NAV_PID" 2>/dev/null || break
+            sleep 1
+        done
+        kill -KILL "-$ROS_NAV_PID" 2>/dev/null || kill -KILL "$ROS_NAV_PID" 2>/dev/null || true
+    fi
+}
+
+has_established_bridge_tcp() {
+    if ! command -v ss >/dev/null 2>&1; then
+        return 0
+    fi
+    ss -Htn state established '( sport = :10000 or dport = :10000 )' 2>/dev/null | grep -q .
+}
+
+unity_topics_ready() {
+    local topics
+    topics="$(ros2 topic list 2>/dev/null || true)"
+
+    echo "$topics" | grep -Eq '^/registered_scan$' || return 1
+    echo "$topics" | grep -Eq '^/camera/image/compressed$' || return 1
+    return 0
+}
+
+bridge_ready() {
+    has_established_bridge_tcp || return 1
+    unity_topics_ready || return 1
+    return 0
+}
+
+launch_with_retry() {
+    local attempt=1
+
+    while true; do
+        echo "[entrypoint-min] Launch attempt ${attempt}: ros2 launch vehicle_simulator ${LAUNCH_FILE} ${LAUNCH_ARGS}"
+        start_ros_nav_stack
+
+        local deadline=$((SECONDS + UNITY_BRIDGE_CONNECT_TIMEOUT_SEC))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            if bridge_ready; then
+                echo "[entrypoint-min] Unity bridge ready: /registered_scan and /camera/image/compressed present."
+                return 0
+            fi
+
+            if ! kill -0 "$ROS_NAV_PID" 2>/dev/null; then
+                echo "[entrypoint-min] ROS nav stack exited during bridge startup."
+                break
+            fi
+            sleep 1
+        done
+
+        cat <<EOM
+================================================================================
+================================================================================
+==================== UNITY BRIDGE STARTUP TIMEOUT ERROR ========================
+================================================================================
+[entrypoint-min] Attempt ${attempt} exceeded UNITY_BRIDGE_CONNECT_TIMEOUT_SEC=${UNITY_BRIDGE_CONNECT_TIMEOUT_SEC}
+[entrypoint-min] Bridge did not become ready in time.
+[entrypoint-min] Required topics missing: /registered_scan and /camera/image/compressed
+[entrypoint-min] Stopping ROS nav stack and retrying in ${UNITY_BRIDGE_RETRY_INTERVAL_SEC}s.
+================================================================================
+================================================================================
+EOM
+
+        stop_ros_nav_stack
+        attempt=$((attempt + 1))
+        sleep "$UNITY_BRIDGE_RETRY_INTERVAL_SEC"
+    done
+}
 
 case "$MODE" in
-    hardware)
-        if [ "${USE_ROUTE_PLANNER:-false}" = "true" ]; then
-            LAUNCH_FILE="system_real_robot_with_route_planner.launch.py"
-        else
-            LAUNCH_FILE="system_real_robot.launch.py"
-        fi
+    simulation|unity_sim|"")
+        start_unity
+        launch_with_retry
         ;;
-    bagfile)
-        if [ "${USE_ROUTE_PLANNER:-false}" = "true" ]; then
-            LAUNCH_FILE="system_bagfile_with_route_planner.launch.py"
-        else
-            LAUNCH_FILE="system_bagfile.launch.py"
-        fi
-        ;;
-    simulation|unity_sim|*)  # simulation / unity_sim / unrecognised → simulation launch
-        if [ "${USE_ROUTE_PLANNER:-true}" = "true" ]; then
-            LAUNCH_FILE="system_simulation_with_route_planner.launch.py"
-        else
-            LAUNCH_FILE="system_simulation.launch.py"
-        fi
+    *)
+        echo "[entrypoint-min] MODE=$MODE is non-simulation; launching ROS nav stack once."
+        start_ros_nav_stack
         ;;
 esac
 
-# Build extra launch arguments
-LAUNCH_ARGS=""
-[ "$LOCALIZATION_METHOD" = "fastlio" ] && LAUNCH_ARGS="use_fastlio2:=true"
-# Disable foxglove bridge in non-hardware modes (started separately for
-# hardware; unnecessary in simulation/bagfile and wastes resources)
-[ "$MODE" != "hardware" ] && LAUNCH_ARGS="${LAUNCH_ARGS} enable_bridge:=false"
-
-echo "[entrypoint] Launching: ros2 launch vehicle_simulator ${LAUNCH_FILE} ${LAUNCH_ARGS}"
-cd /ros2_ws/src/ros-navigation-autonomy-stack
-setsid bash -c "
-    source /opt/ros/${ROS_DISTRO:-humble}/setup.bash
-    source /ros2_ws/install/setup.bash
-    ros2 launch vehicle_simulator ${LAUNCH_FILE} ${LAUNCH_ARGS}
-" &
-echo "[entrypoint] ROS nav stack started (PID: $!), waiting for init (5s)..."
-sleep 5
-
-# ── Optionally play a bag file ─────────────────────────────────────────────
-# Set BAGFILE_PATH to a bag directory or .mcap file inside the container.
-# The nav stack should be MODE=bagfile so use_sim_time is enabled.
-if [ -n "${BAGFILE_PATH:-}" ]; then
-    if [ ! -e "$BAGFILE_PATH" ]; then
-        echo "[entrypoint] ERROR: BAGFILE_PATH set but not found: $BAGFILE_PATH"
-        exit 1
+if [ "$MODE" = "simulation" ] || [ "$MODE" = "unity_sim" ] || [ -z "$MODE" ]; then
+    if [ "${USE_RVIZ:-false}" = "true" ]; then
+        ros2 run rviz2 rviz2 -d src/route_planner/far_planner/rviz/default.rviz &
     fi
-    if [ "$MODE" != "bagfile" ]; then
-        echo "[entrypoint] WARNING: BAGFILE_PATH is set but MODE=${MODE} (expected bagfile)."
-        echo "[entrypoint]          use_sim_time may not be enabled in the nav stack."
-    fi
-    echo "[entrypoint] Playing bag: ros2 bag play --clock $BAGFILE_PATH"
-    ros2 bag play "$BAGFILE_PATH" --clock &
 fi
 
-# ── Optionally launch RViz2 ───────────────────────────────────────────────
-if [ "${USE_RVIZ:-false}" = "true" ]; then
-    DISPLAY_SOCK="/tmp/.X11-unix/X$(echo "${DISPLAY:-:0}" | tr -dc '0-9')"
-    if [ -S "$DISPLAY_SOCK" ]; then
-        echo "[entrypoint] Starting RViz2..."
-        if [ "${USE_ROUTE_PLANNER:-true}" = "true" ]; then
-            RVIZ_CFG="/ros2_ws/src/ros-navigation-autonomy-stack/src/route_planner/far_planner/rviz/default.rviz"
-        else
-            RVIZ_CFG="/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/rviz/vehicle_simulator.rviz"
+# Keep compatibility with DockerModule runner when payload args are provided.
+if [ "$#" -gt 0 ]; then
+    # If dimos import still fails, do a one-time editable install fallback.
+    if ! python -c "import dimos.navigation.rosnav_docker" >/dev/null 2>&1; then
+        if [ -d "/workspace/dimos" ]; then
+            echo "[entrypoint-min] dimos not importable; running pip install -e /workspace/dimos"
+            pip install -e /workspace/dimos >/tmp/dimos_pip_install.log 2>&1 || {
+                echo "[entrypoint-min] WARNING: pip install -e failed; see /tmp/dimos_pip_install.log"
+            }
         fi
-        ros2 run rviz2 rviz2 -d "$RVIZ_CFG" &
-    else
-        echo "[entrypoint] No display socket at $DISPLAY_SOCK — skipping RViz"
     fi
+    exec python -m dimos.core.docker_runner run "$@"
 fi
 
-# ── Twist relay ───────────────────────────────────────────────────────────
-# Converts /foxglove_teleop Twist → /cmd_vel TwistStamped
-if [ -f "/usr/local/bin/twist_relay.py" ]; then
-    python3 /usr/local/bin/twist_relay.py &
-fi
-
-# ── Nav demo (simulation only) ────────────────────────────────────────────
-# Mirrors run_both.sh: sends an initial goal and keeps the ROS nav stack armed.
-# Uses rclpy directly so /cmd_vel is subscribed with BEST_EFFORT QoS (matching
-# the nav stack publisher) instead of the default RELIABLE used by ROSTransport.
-if [ "$MODE" = "simulation" ] || [ "$MODE" = "unity_sim" ]; then
-    DEMO="/workspace/dimos/dimos/navigation/demo_ros_navigation.py"
-    if [ -f "$DEMO" ]; then
-        echo "[entrypoint] Starting nav demo: $DEMO"
-        python3 "$DEMO" &
-    else
-        echo "[entrypoint] WARNING: nav demo not found at $DEMO"
-    fi
-fi
-
-# ── Hand off to the DimOS module runner ───────────────────────────────────
-# The DockerModule framework injects: --payload '{"module_path":..., "args":..., "kwargs":...}'
-exec python -m dimos.core.docker_runner run "$@"
+# Otherwise keep container alive with the nav stack process.
+wait "$ROS_NAV_PID"

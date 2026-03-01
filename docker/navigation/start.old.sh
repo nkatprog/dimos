@@ -380,7 +380,7 @@ if [ -e "/dev/dri" ]; then
     echo -e "${GREEN}/dev/dri detected — enabling DRI device passthrough${NC}"
 fi
 
-# Build compose command (for hardware and bagfile modes)
+# Build compose command
 COMPOSE_CMD="docker compose -f docker-compose.yml"
 if [ "$DEV_MODE" = "true" ]; then
     COMPOSE_CMD="$COMPOSE_CMD -f docker-compose.dev.yml"
@@ -391,101 +391,5 @@ if [ "$MODE" = "hardware" ]; then
 elif [ "$MODE" = "bagfile" ]; then
     $COMPOSE_CMD --profile bagfile up
 else
-    # Simulation mode: run directly with docker (no compose).
-    # Uses dimos_module_entrypoint.sh (mounted from source) which has Unity bridge
-    # retry logic and proper startup sequencing.
-    # Also mounts the patched ros_tcp_endpoint/server.py which fixes a JSON
-    # null-terminator stripping bug that crashes every Unity TCP connection.
-
-    DIMOS_ROOT="${SCRIPT_DIR}/../.."
-    UNITY_MODELS_DIR="${SCRIPT_DIR}/unity_models"
-    ENTRYPOINT_SCRIPT="${DIMOS_ROOT}/dimos/navigation/dimos_module_entrypoint.sh"
-    PATCHED_SERVER="${SCRIPT_DIR}/ros-navigation-autonomy-stack/src/utilities/ROS-TCP-Endpoint/ros_tcp_endpoint/server.py"
-    INSTALLED_SERVER="/ros2_ws/install/ros_tcp_endpoint/lib/python3.10/site-packages/ros_tcp_endpoint/server.py"
-
-    # Resolve Xauthority path (respects $XAUTHORITY env var)
-    XAUTH_HOST="${XAUTHORITY:-${HOME}/.Xauthority}"
-
-    SIM_VOLUMES=(
-        # X11 forwarding
-        -v /tmp/.X11-unix:/tmp/.X11-unix:rw
-        # Unity sim assets — primary path used by launch files
-        -v "${UNITY_MODELS_DIR}:/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/mesh/unity:rw"
-        # Unity sim assets — legacy path some CMU nodes resolve to directly
-        -v "${UNITY_MODELS_DIR}:/ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity:rw"
-        # real_world variant paths (same data, different subdir name)
-        -v "${UNITY_MODELS_DIR}:/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/mesh/real_world:rw"
-        -v "${UNITY_MODELS_DIR}:/ros2_ws/src/base_autonomy/vehicle_simulator/mesh/real_world:rw"
-        # Live dimos source (so entrypoint and Python modules are always current)
-        -v "${DIMOS_ROOT}:/workspace/dimos:rw"
-        # Bagfiles and DDS config
-        -v "${SCRIPT_DIR}/bagfiles:/ros2_ws/bagfiles:rw"
-        -v "${SCRIPT_DIR}/config:/ros2_ws/config:rw"
-        # Mount entrypoint script so changes never require a rebuild
-        -v "${ENTRYPOINT_SCRIPT}:/usr/local/bin/dimos_module_entrypoint.sh:ro"
-    )
-
-    # Patch the installed ros_tcp_endpoint server.py if the fixed version exists.
-    # This fixes a JSON null-terminator stripping bug that crashes Unity TCP connections.
-    if [ -f "${PATCHED_SERVER}" ]; then
-        SIM_VOLUMES+=(-v "${PATCHED_SERVER}:${INSTALLED_SERVER}:ro")
-    else
-        echo -e "${YELLOW}Warning: patched server.py not found at ${PATCHED_SERVER}${NC}"
-        echo "  Unity sensor topics may not publish correctly."
-    fi
-
-    # Mount Xauthority for X11 auth (needed for Unity/RViz display)
-    if [ -f "${XAUTH_HOST}" ]; then
-        SIM_VOLUMES+=(
-            -v "${XAUTH_HOST}:/tmp/.Xauthority:ro"
-        )
-        XAUTH_ENV=(-e XAUTHORITY=/tmp/.Xauthority)
-    else
-        XAUTH_ENV=()
-    fi
-
-    if [ "$DEV_MODE" = "true" ]; then
-        SIM_VOLUMES+=(
-            -v "${SCRIPT_DIR}/ros-navigation-autonomy-stack/src/slam/arise_slam_mid360/config:/ros2_ws/src/ros-navigation-autonomy-stack/src/slam/arise_slam_mid360/config:rw"
-            -v "${SCRIPT_DIR}/ros-navigation-autonomy-stack/src/base_autonomy/local_planner/config:/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/local_planner/config:rw"
-        )
-    fi
-
-    DRI_ARGS=()
-    if [ -n "${DRI_DEVICE}" ]; then
-        DRI_ARGS=(--device "${DRI_DEVICE}:${DRI_DEVICE}")
-    fi
-
-    mkdir -p "${SCRIPT_DIR}/bagfiles" "${SCRIPT_DIR}/config"
-    docker rm -f dimos_simulation_container 2>/dev/null || true
-
-    docker run \
-        --name dimos_simulation_container \
-        --rm \
-        --shm-size=8g \
-        -it \
-        --network host \
-        --cap-add NET_ADMIN \
-        --runtime "${DOCKER_RUNTIME}" \
-        -e DISPLAY="${DISPLAY}" \
-        -e QT_X11_NO_MITSHM=1 \
-        -e "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}" \
-        -e "NVIDIA_DRIVER_CAPABILITIES=${NVIDIA_DRIVER_CAPABILITIES:-all}" \
-        -e "ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}" \
-        -e "ROBOT_CONFIG_PATH=${ROBOT_CONFIG_PATH:-mechanum_drive}" \
-        -e "ROBOT_IP=${ROBOT_IP:-}" \
-        -e MODE=simulation \
-        -e "USE_ROUTE_PLANNER=${USE_ROUTE_PLANNER:-true}" \
-        -e "USE_RVIZ=${USE_RVIZ:-false}" \
-        -e HARDWARE_MODE=false \
-        -e RMW_IMPLEMENTATION=rmw_fastrtps_cpp \
-        -e FASTRTPS_DEFAULT_PROFILES_FILE=/ros2_ws/config/fastdds.xml \
-        -e "LOCALIZATION_METHOD=${LOCALIZATION_METHOD:-arise_slam}" \
-        "${XAUTH_ENV[@]}" \
-        "${SIM_VOLUMES[@]}" \
-        --device /dev/input:/dev/input \
-        "${DRI_ARGS[@]}" \
-        -w /workspace/dimos \
-        "dimos_autonomy_stack:${IMAGE_TAG}" \
-        /usr/local/bin/dimos_module_entrypoint.sh
+    $COMPOSE_CMD up
 fi

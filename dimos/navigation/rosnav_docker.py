@@ -172,6 +172,7 @@ class ROSNavConfig(DockerModuleConfig):
         self.docker_env["QT_X11_NO_MITSHM"] = "1"
 
         repo_root = Path(__file__).parent.parent.parent
+        sim_data_dir = str(get_data("sims/cmu_unity_sim_x86"))
         self.docker_volumes += [
             # X11 socket for display forwarding (RViz, Unity)
             ("/tmp/.X11-unix", "/tmp/.X11-unix", "rw"),
@@ -189,14 +190,27 @@ class ROSNavConfig(DockerModuleConfig):
             # Mount CMU VLA Challenge Unity sim (office_2) — downloaded via get_data / LFS
             # Provides map.ply, traversable_area.ply and environment/Model.x86_64
             (
-                str(get_data("sims/cmu_unity_sim_x86")),
+                sim_data_dir,
                 "/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/mesh/unity/",
                 "rw",
             ),
             # real_world uses the same sim data
             (
-                str(get_data("sims/cmu_unity_sim_x86")),
+                sim_data_dir,
                 "/ros2_ws/src/ros-navigation-autonomy-stack/src/base_autonomy/vehicle_simulator/mesh/real_world/",
+                "rw",
+            ),
+            # Some CMU stack nodes (e.g., visualizationTools.cpp) rewrite install paths
+            # to /ros2_ws/src/base_autonomy/... directly. Mirror the same sim asset
+            # directory at that legacy path to avoid "map.ply not found" errors.
+            (
+                sim_data_dir,
+                "/ros2_ws/src/base_autonomy/vehicle_simulator/mesh/unity/",
+                "rw",
+            ),
+            (
+                sim_data_dir,
+                "/ros2_ws/src/base_autonomy/vehicle_simulator/mesh/real_world/",
                 "rw",
             ),
             # Patch ros_tcp_endpoint server.py: fixes JSON null-terminator stripping bug
