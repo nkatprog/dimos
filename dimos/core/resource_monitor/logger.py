@@ -37,7 +37,7 @@ class StructlogResourceLogger:
             "coordinator",
             pid=coordinator.pid,
             cpu_pct=coordinator.cpu_percent,
-            pss_mb=round(coordinator.pss_mb, 1),
+            pss_mb=round(coordinator.pss / 1048576, 1),
             threads=coordinator.num_threads,
         )
         for w in workers:
@@ -47,12 +47,12 @@ class StructlogResourceLogger:
                 pid=w.pid,
                 alive=w.alive,
                 cpu_pct=w.cpu_percent,
-                pss_mb=round(w.pss_mb, 1),
+                pss_mb=round(w.pss / 1048576, 1),
                 threads=w.num_threads,
                 children=w.num_children,
                 fds=w.num_fds,
-                io_r_mb=round(w.io_read_mb, 1),
-                io_w_mb=round(w.io_write_mb, 1),
+                io_r_mb=round(w.io_read_bytes / 1048576, 1),
+                io_w_mb=round(w.io_write_bytes / 1048576, 1),
                 modules=w.modules,
             )
 

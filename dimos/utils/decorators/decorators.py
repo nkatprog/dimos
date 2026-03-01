@@ -22,6 +22,7 @@ from .accumulators import Accumulator, LatestAccumulator
 
 _CacheResult_co = TypeVar("_CacheResult_co", covariant=True)
 _CacheReturn = TypeVar("_CacheReturn")
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 
 class CachedMethod(Protocol[_CacheResult_co]):
@@ -164,6 +165,34 @@ def simple_mcache(method: Callable) -> Callable:  # type: ignore[type-arg]
     getter.invalidate_cache = invalidate_cache  # type: ignore[attr-defined]
 
     return getter
+
+
+def ttl_cache(seconds: float) -> Callable[[_F], _F]:
+    """Cache function results by positional args with a time-to-live.
+
+    Expired entries are swept on each access.
+    """
+
+    def decorator(func: _F) -> _F:
+        _cache: dict[tuple[Any, ...], tuple[float, Any]] = {}
+
+        @wraps(func)
+        def wrapper(*args: Any) -> Any:
+            now = time.monotonic()
+            expired = [k for k, (ts, _) in _cache.items() if now - ts >= seconds]
+            for k in expired:
+                del _cache[k]
+            if args in _cache:
+                _, val = _cache[args]
+                return val
+            result = func(*args)
+            _cache[args] = (now, result)
+            return result
+
+        wrapper.cache = _cache  # type: ignore[attr-defined]
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 def retry(max_retries: int = 3, on_exception: type[Exception] = Exception, delay: float = 0.0):  # type: ignore[no-untyped-def]

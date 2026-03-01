@@ -50,10 +50,11 @@ def _bar(value: float, max_val: float, width: int = 12) -> Text:
     return Text("█" * filled + "░" * (width - filled), style=_heat(ratio))
 
 
-def _fmt_mb(val: float) -> Text:
-    if val >= 1024:
-        return Text(f"{val / 1024:.1f} GB", style=theme.BRIGHT_YELLOW)
-    return Text(f"{val:.1f} MB", style=theme.WHITE)
+def _fmt_bytes(val: int) -> Text:
+    mb = val / 1048576
+    if mb >= 1024:
+        return Text(f"{mb / 1024:.1f} GB", style=theme.BRIGHT_YELLOW)
+    return Text(f"{mb:.1f} MB", style=theme.WHITE)
 
 
 def _fmt_pct(val: float) -> Text:
@@ -175,12 +176,12 @@ class ResourceSpyApp(App):  # type: ignore[type-arg]
             Text(_fmt_time(d.get("cpu_time_user", 0)).plain, style=s or theme.WHITE),
             Text(_fmt_time(d.get("cpu_time_system", 0)).plain, style=s or theme.WHITE),
             Text(_fmt_time(d.get("cpu_time_iowait", 0)).plain, style=s or theme.WHITE),
-            Text(_fmt_mb(d.get("pss_mb", 0)).plain, style=s or _fmt_mb(d.get("pss_mb", 0)).style),
+            Text(_fmt_bytes(d.get("pss", 0)).plain, style=s or _fmt_bytes(d.get("pss", 0)).style),
             Text(str(d.get("num_threads", 0)), style=s or theme.WHITE),
             Text(str(d.get("num_children", 0)), style=s or theme.WHITE),
             Text(str(d.get("num_fds", 0)), style=s or theme.WHITE),
             Text(
-                f"{d.get('io_read_mb', 0):.0f}/{d.get('io_write_mb', 0):.0f}",
+                f"{d.get('io_read_bytes', 0) / 1048576:.0f}/{d.get('io_write_bytes', 0) / 1048576:.0f}",
                 style=s or theme.WHITE,
             ),
             Text(role, style=s or role_style),
