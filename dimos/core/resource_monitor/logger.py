@@ -20,19 +20,19 @@ from typing import TYPE_CHECKING, Any, Protocol
 from dimos.utils.logging_config import setup_logger
 
 if TYPE_CHECKING:
-    from dimos.core.worker import WorkerStats
+    from dimos.core.resource_monitor.stats import ProcessStats, WorkerStats
 
 logger = setup_logger()
 
 
 class ResourceLogger(Protocol):
-    def log_stats(self, coordinator: WorkerStats, workers: list[WorkerStats]) -> None: ...
+    def log_stats(self, coordinator: ProcessStats, workers: list[WorkerStats]) -> None: ...
 
 
 class StructlogResourceLogger:
     """Default implementation — logs resource stats via structlog info."""
 
-    def log_stats(self, coordinator: WorkerStats, workers: list[WorkerStats]) -> None:
+    def log_stats(self, coordinator: ProcessStats, workers: list[WorkerStats]) -> None:
         logger.info(
             "coordinator",
             pid=coordinator.pid,
@@ -65,7 +65,7 @@ class LCMResourceLogger:
 
         self._transport: pLCMTransport[dict[str, Any]] = pLCMTransport(topic)
 
-    def log_stats(self, coordinator: WorkerStats, workers: list[WorkerStats]) -> None:
+    def log_stats(self, coordinator: ProcessStats, workers: list[WorkerStats]) -> None:
         self._transport.broadcast(
             None,
             {

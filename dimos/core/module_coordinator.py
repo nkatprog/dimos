@@ -21,8 +21,12 @@ from typing import TYPE_CHECKING, Any
 
 from dimos.core.global_config import GlobalConfig, global_config
 from dimos.core.resource import Resource
-from dimos.core.resource_logger import LCMResourceLogger, ResourceLogger
-from dimos.core.worker import WorkerStats, collect_process_stats
+from dimos.core.resource_monitor import (
+    LCMResourceLogger,
+    ResourceLogger,
+    WorkerStats,
+    collect_process_stats,
+)
 from dimos.core.worker_manager import WorkerManager
 from dimos.utils.logging_config import setup_logger
 

@@ -18,11 +18,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 from dimos.core.rpc_client import RPCClient
-from dimos.core.worker import Worker, WorkerStats
+from dimos.core.worker import Worker
 from dimos.utils.logging_config import setup_logger
 
 if TYPE_CHECKING:
     from dimos.core.module import ModuleT
+    from dimos.core.resource_monitor import WorkerStats
 
 logger = setup_logger()
 
