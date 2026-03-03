@@ -41,7 +41,6 @@ all_blueprints = {
     "demo-agent": "dimos.agents.demo_agent:demo_agent",
     "demo-agent-camera": "dimos.agents.demo_agent:demo_agent_camera",
     "demo-camera": "dimos.hardware.sensors.camera.module:demo_camera",
-    "demo-error-on-name-conflicts": "dimos.robot.unitree.demo_error_on_name_conflicts:demo_error_on_name_conflicts",
     "demo-google-maps-skill": "dimos.agents.skills.demo_google_maps_skill:demo_google_maps_skill",
     "demo-gps-nav": "dimos.agents.skills.demo_gps_nav:demo_gps_nav",
     "demo-grasping": "dimos.manipulation.grasping.demo_grasping:demo_grasping",
