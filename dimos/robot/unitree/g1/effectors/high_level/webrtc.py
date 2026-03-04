@@ -87,9 +87,9 @@ class G1HighLevelWebRtc(Module, HighLevelG1Spec):
 
     connection: UnitreeWebRTCConnection | None
 
-    def __init__(self, global_config: GlobalConfig, *args: Any, **kwargs: Any) -> None:
-        super().__init__(global_config, *args, **kwargs)
-        self._global_config = global_config
+    def __init__(self, *args: Any, cfg: GlobalConfig = global_config, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._global_config = cfg
 
     # ----- lifecycle -------------------------------------------------------
 

@@ -34,7 +34,7 @@ from unitree_sdk2py.g1.loco.g1_loco_api import (
 from unitree_sdk2py.g1.loco.g1_loco_client import LocoClient
 
 from dimos.core import In, Module, ModuleConfig, rpc
-from dimos.core.global_config import GlobalConfig
+from dimos.core.global_config import GlobalConfig, global_config
 from dimos.msgs.geometry_msgs import Twist
 from dimos.robot.unitree.g1.effectors.high_level.spec import HighLevelG1Spec
 from dimos.utils.logging_config import setup_logger
@@ -84,9 +84,9 @@ class G1HighLevelDdsSdk(Module, HighLevelG1Spec):
     # Primary timing knob — individual delays in methods are fractions of this.
     _standup_step_delay: float = 3.0
 
-    def __init__(self, global_config: GlobalConfig, *args: Any, **kwargs: Any) -> None:
-        super().__init__(global_config, *args, **kwargs)
-        self._global_config = global_config
+    def __init__(self, *args: Any, cfg: GlobalConfig = global_config, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._global_config = cfg
         self._stop_timer: threading.Timer | None = None
         self._running = False
         self._mode_selected = False
@@ -123,7 +123,8 @@ class G1HighLevelDdsSdk(Module, HighLevelG1Spec):
         self._select_motion_mode()
         self._running = True
 
-        self._disposables.add(Disposable(self.cmd_vel.subscribe(self.move)))
+        if self.cmd_vel._transport is not None:
+            self._disposables.add(Disposable(self.cmd_vel.subscribe(self.move)))
         logger.info("G1 DDS SDK connection started")
 
     @rpc
@@ -146,6 +147,7 @@ class G1HighLevelDdsSdk(Module, HighLevelG1Spec):
 
     @rpc
     def move(self, twist: Twist, duration: float = 0.0) -> bool:
+        print(f'''sending move''')
         assert self.loco_client is not None
         vx = twist.linear.x
         vy = twist.linear.y
@@ -259,6 +261,9 @@ class G1HighLevelDdsSdk(Module, HighLevelG1Spec):
         except Exception as e:
             logger.error(f"Lie down failed: {e}")
             return False
+
+    def disconnect(self) -> None:
+        self.stop()
 
     # ----- private helpers -------------------------------------------------
 

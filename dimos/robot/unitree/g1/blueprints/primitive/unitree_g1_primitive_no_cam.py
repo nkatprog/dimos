@@ -28,7 +28,7 @@ from dimos.msgs.sensor_msgs import Image, PointCloud2
 from dimos.msgs.std_msgs import Bool
 from dimos.navigation.frontier_exploration import wavefront_frontier_explorer
 from dimos.protocol.pubsub.impl.lcmpubsub import LCM
-from dimos.robot.unitree.g1.effectors.high_level.dds_sdk import G1HighLevelSdk
+from dimos.robot.unitree.g1.effectors.high_level.dds_sdk import G1HighLevelDdsSdk
 from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
 
 rerun_config = {
@@ -82,7 +82,7 @@ unitree_g1_primitive_no_cam = (
         wavefront_frontier_explorer(),
         # Visualization
         websocket_vis(),
-        G1HighLevelSdk.blueprint(),
+        G1HighLevelDdsSdk.blueprint(),
     )
     .global_config(n_dask_workers=4, robot_model="unitree_g1")
     .transports(

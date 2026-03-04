@@ -22,7 +22,8 @@ import curses
 import time
 
 from dimos.msgs.geometry_msgs import Twist, Vector3
-from dimos.robot.unitree.g1.onboard_connection import G1OnboardConnection
+# from dimos.robot.unitree.g1.onboard_connection import G1OnboardConnection
+from dimos.robot.unitree.g1.effectors.high_level.dds_sdk import G1HighLevelDdsSdk
 
 
 def draw_ui(stdscr, state_text="Not connected"):
@@ -73,7 +74,7 @@ def main(stdscr):
     draw_ui(stdscr, "Initializing...")
 
     # Initialize connection
-    conn = G1OnboardConnection(network_interface="eth0", mode="ai")
+    conn = G1HighLevelDdsSdk(network_interface="eth0")
     conn.start()
     time.sleep(1)
 
