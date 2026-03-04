@@ -16,8 +16,18 @@ RUN apt-get update && apt-get install -y \
     wget \
     net-tools \
     sudo \
-    pre-commit
+    pre-commit \
+    cyclonedds-dev
 
+# Set up CycloneDDS compatibility directory structure
+RUN mkdir -p /opt/cyclonedds/{lib,bin,include} && \
+    ln -sf /usr/lib/x86_64-linux-gnu/libddsc.so* /opt/cyclonedds/lib/ && \
+    ln -sf /usr/lib/x86_64-linux-gnu/libcycloneddsidl.so* /opt/cyclonedds/lib/ && \
+    ln -sf /usr/bin/idlc /opt/cyclonedds/bin/ && \
+    ln -sf /usr/bin/ddsperf /opt/cyclonedds/bin/ && \
+    ln -sf /usr/include/dds /opt/cyclonedds/include/
+
+ENV CYCLONEDDS_HOME=/opt/cyclonedds
 
 # Configure git to trust any directory (resolves dubious ownership issues in containers)
 RUN git config --global --add safe.directory '*'
