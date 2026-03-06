@@ -48,7 +48,7 @@ _coordinator = control_coordinator(
     hardware=[
         HardwareComponent(
             hardware_id="go2",
-            hardware_type=HardwareType.QUADRUPED,
+            hardware_type=HardwareType.WHOLE_BODY,
             joints=_go2_joints,
             adapter_type="unitree_go2",
             auto_enable=True,
