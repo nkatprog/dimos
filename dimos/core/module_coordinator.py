@@ -105,8 +105,20 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
 
         module_list = list(self._deployed_modules.values())
         for module in modules:
-            if hasattr(module, "on_system_modules"):
-                module.on_system_modules(module_list)
+            has_hook = hasattr(module, "on_system_modules")
+            logger.info(
+                "on_system_modules check",
+                module=type(module).__name__,
+                actor_class=getattr(module, "actor_class", None),
+                has_hook=has_hook,
+            )
+            if has_hook:
+                try:
+                    module.on_system_modules(module_list)
+                except Exception:
+                    logger.error(
+                        "on_system_modules failed", module=type(module).__name__, exc_info=True
+                    )
 
     def get_instance(self, module: type[ModuleT]) -> ModuleProxy:
         return self._deployed_modules.get(module)  # type: ignore[return-value, no-any-return]

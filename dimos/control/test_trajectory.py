@@ -17,8 +17,8 @@ from typing import TypedDict
 
 import pytest
 
-from dimos.core import LCMTransport
 from dimos.core.global_config import GlobalConfig
+from dimos.core.transport import LCMTransport
 from dimos.mapping.occupancy.path_resampling import smooth_resample_path
 from dimos.mapping.pointclouds.occupancy import height_cost_occupancy
 from dimos.mapping.voxels import VoxelGridMapper

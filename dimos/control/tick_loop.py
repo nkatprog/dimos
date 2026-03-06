@@ -31,6 +31,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, NamedTuple
 
+from dimos.control.components import TWIST_SUFFIX_MAP
 from dimos.control.task import (
     ControlTask,
     CoordinatorState,
@@ -38,6 +39,7 @@ from dimos.control.task import (
     JointStateSnapshot,
     ResourceClaim,
 )
+from dimos.msgs.geometry_msgs import Twist, Vector3
 from dimos.msgs.sensor_msgs import JointState
 from dimos.utils.logging_config import setup_logger
 
@@ -93,6 +95,7 @@ class TickLoop:
         task_lock: threading.Lock,
         joint_to_hardware: dict[JointName, HardwareId],
         publish_callback: Callable[[JointState], None] | None = None,
+        twist_publish_callback: Callable[..., None] | None = None,
         frame_id: str = "coordinator",
         log_ticks: bool = False,
     ) -> None:
@@ -103,6 +106,7 @@ class TickLoop:
         self._task_lock = task_lock
         self._joint_to_hardware = joint_to_hardware
         self._publish_callback = publish_callback
+        self._twist_publish_callback = twist_publish_callback
         self._frame_id = frame_id
         self._log_ticks = log_ticks
 
@@ -190,6 +194,10 @@ class TickLoop:
 
         # === PHASE 6: WRITE TO HARDWARE ===
         self._write_all_hardware(hw_commands)
+
+        # === PHASE 6.5: PUBLISH BASE TWIST ===
+        if self._twist_publish_callback and hw_commands:
+            self._publish_base_twist(hw_commands)
 
         # === PHASE 7: PUBLISH AGGREGATED STATE ===
         if self._publish_callback:
@@ -381,6 +389,38 @@ class TickLoop:
                         self._hardware[hw_id].write_command(positions, mode)
                     except Exception as e:
                         logger.error(f"Failed to write to {hw_id}: {e}")
+
+    def _publish_base_twist(
+        self,
+        hw_commands: dict[str, tuple[dict[str, float], ControlMode]],
+    ) -> None:
+        """Extract base joint velocities from hw_commands and publish as Twist.
+
+        Maps joint names like base_vx, base_vy, base_wz to Twist fields
+        using the TWIST_SUFFIX_MAP convention.
+        """
+        linear = [0.0, 0.0, 0.0]  # x, y, z
+        angular = [0.0, 0.0, 0.0]  # x, y, z
+        axis_map = {"x": 0, "y": 1, "z": 2}
+
+        for _hw_id, (joints, _mode) in hw_commands.items():
+            for joint_name, value in joints.items():
+                suffix = joint_name.rsplit("_", 1)[-1]
+                mapping = TWIST_SUFFIX_MAP.get(suffix)
+                if mapping is None:
+                    continue
+                group, axis = mapping
+                idx = axis_map[axis]
+                if group == "linear":
+                    linear[idx] = value
+                else:
+                    angular[idx] = value
+
+        twist = Twist(
+            linear=Vector3(linear[0], linear[1], linear[2]),
+            angular=Vector3(angular[0], angular[1], angular[2]),
+        )
+        self._twist_publish_callback(twist)
 
     def _publish_joint_state(self, snapshot: JointStateSnapshot) -> None:
         """Publish aggregated JointState for external consumers."""

@@ -229,7 +229,20 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
         self._camera_info_thread.start()
 
         self.standup()
-        # self.record("go2_bigoffice")
+        time.sleep(3)
+        self.connection.balance_stand()
+
+        # Disable built-in obstacle avoidance so velocity commands aren't blocked
+        try:
+            from unitree_webrtc_connect.constants import RTC_TOPIC
+
+            self.connection.publish_request(
+                RTC_TOPIC["OBSTACLES_AVOID"],
+                {"api_id": 1001, "parameter": {"enable": 0}},
+            )
+            logger.info("Disabled obstacle avoidance")
+        except Exception as e:
+            logger.warning(f"Failed to disable obstacle avoidance: {e}")
 
     @rpc
     def stop(self) -> None:
@@ -287,6 +300,11 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
     def standup(self) -> bool:
         """Make the robot stand up."""
         return self.connection.standup()
+
+    @rpc
+    def free_walk(self) -> bool:
+        """Activate FreeWalk locomotion mode — enables walking and velocity commands."""
+        return self.connection.free_walk()
 
     @rpc
     def liedown(self) -> bool:

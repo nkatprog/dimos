@@ -15,16 +15,15 @@
 import math
 import os
 import traceback
-from typing import Callable
 
 from dimos_lcm.std_msgs import Bool, String
 from reactivex.disposable import Disposable
 
-from dimos.control.components import HardwareComponent, HardwareType
 from dimos.control.coordinator import ControlCoordinator
-from dimos.core import In, Module, Out, rpc
+from dimos.core.core import rpc
 from dimos.core.global_config import GlobalConfig, global_config
-from dimos.hardware.manipulators.registry import adapter_registry
+from dimos.core.module import Module
+from dimos.core.stream import In, Out
 from dimos.msgs.geometry_msgs import PointStamped, PoseStamped, Twist
 from dimos.msgs.nav_msgs import OccupancyGrid, Path
 from dimos.navigation.base import NavigationInterface, NavigationState
@@ -36,6 +35,7 @@ from dimos.navigation.replanning_a_star.path_follower_task import (
 from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
+
 
 class ReplanningAStarPlanner(Module, NavigationInterface):
     odom: In[PoseStamped]  # TODO: Use TF.
@@ -86,7 +86,9 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
         self._disposables.add(self._planner.path.subscribe(self.path.publish))
 
         if self._path_follower_task is None:
-            self._local_planner_cmd_vel_disposable = self._planner.cmd_vel.subscribe(self.cmd_vel.publish)
+            self._local_planner_cmd_vel_disposable = self._planner.cmd_vel.subscribe(
+                self.cmd_vel.publish
+            )
             self._disposables.add(self._local_planner_cmd_vel_disposable)
             logger.warning("PathFollowerTask not set - using LocalPlanner fallback")
         else:
@@ -129,10 +131,10 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
     @rpc
     def set_coordinator(self, coordinator: ControlCoordinator) -> bool:
         """Set the ControlCoordinator for path following.
-    
+
         Args:
             coordinator: ControlCoordinator instance
-            
+
         Returns:
             True if setup successful
         """
@@ -143,8 +145,8 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
             task_config = PathFollowerTaskConfig(
                 joint_names=["base_vx", "base_vy", "base_wz"],
                 priority=10,
-                max_linear_speed=1.3,
-                goal_tolerance=0.2,                      # match GlobalPlanner._goal_tolerance
+                max_linear_speed=1.0,
+                goal_tolerance=0.2,  # match GlobalPlanner._goal_tolerance
                 orientation_tolerance=math.radians(15),  # match _rotation_tolerance
             )
             self._path_follower_task = PathFollowerTask(
@@ -152,7 +154,7 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
                 config=task_config,
                 global_config=self._global_config,
             )
-            
+
             # Add task to coordinator
             if not coordinator.add_task(self._path_follower_task):
                 logger.error("Failed to add PathFollowerTask to coordinator")
@@ -162,15 +164,16 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
             # NOTE: The actual task instance that runs lives inside the ControlCoordinator
             # process; we refer to it by name via coordinator.task_invoke().
             self._planner.set_path_follower_task(coordinator, "path_follower")
-            
 
             # Disable LocalPlanner cmd_vel if it was subscribed
             if self._local_planner_cmd_vel_disposable is not None:
                 self._local_planner_cmd_vel_disposable.dispose()
                 self._local_planner_cmd_vel_disposable = None
                 logger.info("Disabled LocalPlanner cmd_vel - PathFollowerTask is now active")
-            
-            logger.info("PathFollowerTask added to ControlCoordinator and connected to GlobalPlanner")
+
+            logger.info(
+                "PathFollowerTask added to ControlCoordinator and connected to GlobalPlanner"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to set coordinator: {e}")
@@ -180,71 +183,33 @@ class ReplanningAStarPlanner(Module, NavigationInterface):
     @rpc
     def on_system_modules(self, modules: list) -> None:
         """Called by the framework after all modules are started.
-        
+
         Auto-detects ControlCoordinator and wires up coordinator-based path
-        following. This runs after start(), so it properly overrides the
-        LocalPlanner fallback if a coordinator is present.
+        following. Creates a fresh RPC proxy since module references from
+        the framework can't cross process boundaries with live connections.
         """
         from dimos.control.coordinator import ControlCoordinator as CoordinatorClass
+        from dimos.core.rpc_client import RPCClient
 
-        coordinator = None
+        # Check if any module in the list is a ControlCoordinator
+        has_coordinator = False
         for module in modules:
             try:
                 if issubclass(module.actor_class, CoordinatorClass):
-                    coordinator = module
+                    has_coordinator = True
                     break
             except (AttributeError, TypeError):
                 continue
 
-        if coordinator is not None:
-            logger.info("ControlCoordinator found - setting up coordinator-based path following")
-            if self.set_coordinator(coordinator):
-                self.setup_base_hardware_with_callback(coordinator, None)
+        if has_coordinator:
+            logger.info("ControlCoordinator found - creating local RPC proxy")
+            # Create a fresh RPC proxy that communicates via LCM topics.
+            # The deserialized module references have broken Actor connections,
+            # but RPCClient can work with just the class name for LCM RPC routing.
+            coordinator = RPCClient(None, CoordinatorClass)
+            self.set_coordinator(coordinator)
         else:
             logger.info("No ControlCoordinator in blueprint - LocalPlanner fallback active")
-
-    @rpc
-    def setup_base_hardware_with_callback(
-        self,
-        coordinator: ControlCoordinator,
-        twist_callback: Callable[[Twist], None] | None,
-    ) -> bool:
-        """Set up base hardware adapter with provided callback.
-        
-        Args:
-            coordinator: ControlCoordinator instance
-            twist_callback: Callback function that receives Twist commands
-                        (should call GO2Connection.move() or a ROS publisher)
-            
-        Returns:
-            True if setup successful
-        """
-        try:
-            # Create adapter
-            adapter = adapter_registry.create(
-                "base_twist",
-                twist_callback=twist_callback,
-                dof=3,
-            )
-            
-            # Create hardware component
-            component = HardwareComponent(
-                hardware_id="base",
-                hardware_type=HardwareType.MANIPULATOR,
-                joints=["base_vx", "base_vy", "base_wz"],
-            )
-            
-            # Add hardware to coordinator
-            if not coordinator.add_hardware(adapter, component):
-                logger.error("Failed to add base hardware to coordinator")
-                return False
-            
-            logger.info("Base hardware adapter set up successfully")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to set up base hardware: {e}")
-            return False
 
 
 replanning_a_star_planner = ReplanningAStarPlanner.blueprint

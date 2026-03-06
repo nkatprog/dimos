@@ -160,6 +160,9 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
     # Output: Aggregated joint state for external consumers
     joint_state: Out[JointState]
 
+    # Output: Base velocity as Twist (bridges coordinator → GO2Connection cmd_vel)
+    cmd_vel: Out[Twist]
+
     # Input: Streaming joint commands for real-time control
     joint_command: In[JointState]
 
@@ -672,6 +675,13 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
 
         # Create and start tick loop
         publish_cb = self.joint_state.publish if self.config.publish_joint_state else None
+
+        # Check if any hardware is a BASE type — if so, publish Twist after each tick
+        has_base = any(
+            hw.component.hardware_type == HardwareType.BASE for hw in self._hardware.values()
+        )
+        twist_cb = self.cmd_vel.publish if has_base else None
+
         self._tick_loop = TickLoop(
             tick_rate=self.config.tick_rate,
             hardware=self._hardware,
@@ -680,6 +690,7 @@ class ControlCoordinator(Module[ControlCoordinatorConfig]):
             task_lock=self._task_lock,
             joint_to_hardware=self._joint_to_hardware,
             publish_callback=publish_cb,
+            twist_publish_callback=twist_cb,
             frame_id=self.config.joint_state_frame_id,
             log_ticks=self.config.log_ticks,
         )

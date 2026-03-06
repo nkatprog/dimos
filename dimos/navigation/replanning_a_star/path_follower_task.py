@@ -21,7 +21,7 @@ within the ControlCoordinator tick loop.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -32,17 +32,19 @@ from dimos.control.task import (
     JointCommandOutput,
     ResourceClaim,
 )
-from dimos.core.global_config import GlobalConfig
-from dimos.msgs.geometry_msgs import PoseStamped
-from dimos.msgs.nav_msgs import Path
 from dimos.navigation.replanning_a_star.controllers import (
-    PurePursuitController,
     PIDCrossTrackController,
+    PurePursuitController,
 )
 from dimos.navigation.replanning_a_star.path_distancer import PathDistancer
 from dimos.navigation.replanning_a_star.velocity_profiler import VelocityProfiler
 from dimos.utils.logging_config import setup_logger
 from dimos.utils.trigonometry import angle_diff
+
+if TYPE_CHECKING:
+    from dimos.core.global_config import GlobalConfig
+    from dimos.msgs.geometry_msgs import PoseStamped
+    from dimos.msgs.nav_msgs import Path
 
 logger = setup_logger()
 
@@ -50,7 +52,7 @@ logger = setup_logger()
 @dataclass
 class PathFollowerTaskConfig:
     """Configuration for path follower task.
-    
+
     Attributes:
         joint_names: Joint names for base control ["base_vx", "base_vy", "base_wz"]
         priority: Task priority for arbitration
@@ -58,13 +60,13 @@ class PathFollowerTaskConfig:
         goal_tolerance: Distance tolerance for goal (m)
         orientation_tolerance: Orientation tolerance for goal (rad)
     """
-    
+
     joint_names: list[str] = None  # type: ignore[assignment]
     priority: int = 10
     max_linear_speed: float = 0.8
     goal_tolerance: float = 0.3
     orientation_tolerance: float = 0.35
-    
+
     def __post_init__(self) -> None:
         """Set default joint names if not provided."""
         if self.joint_names is None:
@@ -73,12 +75,12 @@ class PathFollowerTaskConfig:
 
 class PathFollowerTask(BaseControlTask):
     """Path-following control task for mobile base.
-    
+
     Follows a Path using Pure Pursuit controller with velocity profiling.
     Outputs JointCommandOutput with base velocities [vx, vy, wz].
-    
+
     CRITICAL: Uses state.t_now from CoordinatorState, never calls time.time()
-    
+
     State Machine:
         IDLE ──start_path()──► FOLLOWING ──goal_reached──► COMPLETED
           ▲                        │                          │
@@ -86,10 +88,10 @@ class PathFollowerTask(BaseControlTask):
           │                        ▼                          │
           └─────reset()───── ABORTED ◄──────────────────────┘
     """
-    
+
     # Task states
     State: type = Literal["idle", "following", "completed", "aborted"]
-    
+
     def __init__(
         self,
         name: str,
@@ -97,7 +99,7 @@ class PathFollowerTask(BaseControlTask):
         global_config: GlobalConfig,
     ):
         """Initialize path follower task.
-        
+
         Args:
             name: Unique task name
             config: Task configuration
@@ -108,13 +110,13 @@ class PathFollowerTask(BaseControlTask):
                 f"PathFollowerTask '{name}' requires exactly 3 joints "
                 f"(base_vx, base_vy, base_wz), got {len(config.joint_names)}"
             )
-        
+
         self._name = name
         self._config = config
         self._global_config = global_config
         self._joint_names = frozenset(config.joint_names)
         self._joint_names_list = list(config.joint_names)
-        
+
         # State machine
         self._state: PathFollowerTask.State = "idle"
         self._path: Path | None = None
@@ -122,35 +124,33 @@ class PathFollowerTask(BaseControlTask):
         self._velocity_profiler: VelocityProfiler | None = None
         self._current_odom: PoseStamped | None = None
         self._closest_index: int = 0
-        
+
         # Controller
         self._controller = PurePursuitController(
             global_config,
-            control_frequency=100.0, 
+            control_frequency=10.0,
             min_lookahead=0.2,
-            max_lookahead=0.5,  
+            max_lookahead=0.5,
             lookahead_gain=0.3,
-            max_linear_speed=self._config.max_linear_speed,  
+            max_linear_speed=self._config.max_linear_speed,
         )
         # Cross-track PID controller for tighter lateral tracking
         self._cross_track_controller = PIDCrossTrackController(
-            control_frequency=100.0,
-            k_p=1.5,  
-            k_i=0.1, 
-            k_d=0.2,  
-            max_correction=1.0,  
+            control_frequency=10.0,
+            k_p=0.2,
+            k_i=0.0,
+            k_d=0.1,
+            max_correction=0.5,
             max_integral=0.3,
         )
-        
-        logger.info(
-            f"PathFollowerTask {name} initialized for joints: {config.joint_names}"
-        )
-    
+
+        logger.info(f"PathFollowerTask {name} initialized for joints: {config.joint_names}")
+
     @property
     def name(self) -> str:
         """Unique task identifier."""
         return self._name
-    
+
     def claim(self) -> ResourceClaim:
         """Declare resource requirements."""
         return ResourceClaim(
@@ -158,19 +158,19 @@ class PathFollowerTask(BaseControlTask):
             priority=self._config.priority,
             mode=ControlMode.VELOCITY,
         )
-    
+
     def is_active(self) -> bool:
         """Check if task should run this tick."""
         return self._state == "following"
-    
+
     def compute(self, state: CoordinatorState) -> JointCommandOutput | None:
         """Compute path-following command for this tick.
-        
+
         CRITICAL: Uses state.t_now for timing, NOT time.time()!
-        
+
         Args:
             state: Current coordinator state
-            
+
         Returns:
             JointCommandOutput with [base_vx, base_vy, base_wz], or None if not active
         """
@@ -179,18 +179,18 @@ class PathFollowerTask(BaseControlTask):
             return None
         if self._current_odom is None:
             return None
-        
+
         path_distancer = self._path_distancer
         velocity_profiler = self._velocity_profiler
         current_odom = self._current_odom
         closest_index = self._closest_index
-        
+
         # Check if goal reached
         current_pos = np.array([current_odom.position.x, current_odom.position.y])
-        
+
         # Distance to goal
         distance_to_goal = path_distancer.distance_to_goal(current_pos)
-        
+
         # --- FINAL ROTATION MODE: inside positional tolerance ---
         if distance_to_goal < self._config.goal_tolerance and len(self._path.poses) > 0:
             goal_yaw = self._path.poses[-1].orientation.euler[2]
@@ -224,18 +224,18 @@ class PathFollowerTask(BaseControlTask):
                 ],
                 mode=ControlMode.VELOCITY,
             )
-        
+
         # --- NORMAL PATH FOLLOWING (Pure Pursuit + cross-track PID) ---
         # Update closest point on path
         closest_index = path_distancer.find_closest_point_index(current_pos)
         self._closest_index = closest_index
-        
+
         # Get velocity from profiler
         target_velocity = velocity_profiler.get_velocity_at_index(self._path, closest_index)
-        
+
         # Get curvature for better control
         curvature = path_distancer.get_curvature_at_index(closest_index)
-        
+
         # Find adaptive lookahead point
         lookahead_point = path_distancer.find_adaptive_lookahead_point(
             closest_index,
@@ -243,7 +243,7 @@ class PathFollowerTask(BaseControlTask):
             min_lookahead=0.3,
             max_lookahead=2.0,
         )
-        
+
         # Compute control command using Pure Pursuit
         twist = self._controller.advance(
             lookahead_point,
@@ -264,7 +264,7 @@ class PathFollowerTask(BaseControlTask):
         # Re-clamp yaw rate to match controller limits
         max_wz = 1.2
         twist.angular.z = float(np.clip(twist.angular.z, -max_wz, max_wz))
-        
+
         # Convert Twist to JointCommandOutput
         # Twist: linear.x (forward), linear.y (left), angular.z (yaw)
         # Joints: base_vx (forward), base_vy (left), base_wz (yaw)
@@ -277,10 +277,10 @@ class PathFollowerTask(BaseControlTask):
             ],
             mode=ControlMode.VELOCITY,
         )
-    
+
     def on_preempted(self, by_task: str, joints: frozenset[str]) -> None:
         """Handle preemption by higher-priority task.
-        
+
         Args:
             by_task: Name of preempting task
             joints: Joints that were preempted
@@ -291,25 +291,25 @@ class PathFollowerTask(BaseControlTask):
             )
             if self._state == "following":
                 self._state = "aborted"
-    
+
     # =========================================================================
     # Task-specific methods
     # =========================================================================
-    
+
     def start_path(self, path: Path, current_odom: PoseStamped) -> bool:
         """Start following a new path.
-        
+
         Args:
             path: Path to follow
             current_odom: Current robot pose
-            
+
         Returns:
             True if accepted, False if invalid
         """
         if path is None or len(path.poses) < 2:
             logger.warning(f"PathFollowerTask {self._name}: invalid path")
             return False
-        
+
         self._path = path
         self._path_distancer = PathDistancer(path)
         self._velocity_profiler = VelocityProfiler(
@@ -322,30 +322,29 @@ class PathFollowerTask(BaseControlTask):
         )
 
         self._cross_track_controller.reset()
-        
+
         self._current_odom = current_odom
         self._closest_index = self._path_distancer.find_closest_point_index(
             np.array([current_odom.position.x, current_odom.position.y])
         )
         self._state = "following"
-        
+
         logger.info(
-            f"PathFollowerTask {self._name} started following path with "
-            f"{len(path.poses)} points"
+            f"PathFollowerTask {self._name} started following path with {len(path.poses)} points"
         )
         return True
-    
+
     def update_odom(self, odom: PoseStamped) -> None:
         """Update current robot pose.
-        
+
         Args:
             odom: Current robot pose
         """
         self._current_odom = odom
-    
+
     def cancel(self) -> bool:
         """Cancel current path following.
-        
+
         Returns:
             True if cancelled, False if not following
         """
@@ -354,10 +353,10 @@ class PathFollowerTask(BaseControlTask):
         self._state = "aborted"
         logger.info(f"PathFollowerTask {self._name} cancelled")
         return True
-    
+
     def reset(self) -> bool:
         """Reset to idle state.
-        
+
         Returns:
             True if reset, False if currently following
         """
@@ -371,7 +370,7 @@ class PathFollowerTask(BaseControlTask):
         self._current_odom = None
         logger.info(f"PathFollowerTask {self._name} reset to IDLE")
         return True
-    
+
     def get_state(self) -> State:
         """Get current state."""
         return self._state
