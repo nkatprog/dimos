@@ -44,7 +44,7 @@ class Transformer(ABC, Generic[T, R]):
         Has full access to the source stream — can query, filter, batch, skip, etc.
         """
 
-    def on_append(self, obs: Observation, target: Stream[R]) -> None:
+    def on_append(self, obs: Observation[Any], target: Stream[R]) -> None:
         """Reactive per-item processing. Called for each new item."""
 
 
@@ -59,10 +59,10 @@ class PerItemTransformer(Transformer[T, R]):
             for obs in page:
                 self._apply(obs, target)
 
-    def on_append(self, obs: Observation, target: Stream[R]) -> None:
+    def on_append(self, obs: Observation[Any], target: Stream[R]) -> None:
         self._apply(obs, target)
 
-    def _apply(self, obs: Observation, target: Stream[R]) -> None:
+    def _apply(self, obs: Observation[Any], target: Stream[R]) -> None:
         result = self._fn(obs.data)
         if result is None:
             return
@@ -89,12 +89,12 @@ class QualityWindowTransformer(Transformer[T, T]):
         self._window = window
         # Live state
         self._window_start: float | None = None
-        self._best_obs: Observation | None = None
+        self._best_obs: Observation[T] | None = None
         self._best_score: float = -1.0
 
     def process(self, source: Stream[T], target: Stream[T]) -> None:
         window_start: float | None = None
-        best_obs: Observation | None = None
+        best_obs: Observation[T] | None = None
         best_score: float = -1.0
 
         for obs in source:
@@ -129,7 +129,7 @@ class QualityWindowTransformer(Transformer[T, T]):
                 parent_id=best_obs.id,
             )
 
-    def on_append(self, obs: Observation, target: Stream[T]) -> None:
+    def on_append(self, obs: Observation[T], target: Stream[T]) -> None:  # type: ignore[override]
         ts = obs.ts or 0.0
 
         if self._window_start is None:
@@ -177,7 +177,7 @@ class CaptionTransformer(Transformer[Any, str]):
             for obs, cap in zip(page, captions, strict=True):
                 target.append(cap, ts=obs.ts, pose=obs.pose, tags=obs.tags, parent_id=obs.id)
 
-    def on_append(self, obs: Observation, target: Stream[str]) -> None:
+    def on_append(self, obs: Observation[Any], target: Stream[str]) -> None:
         caption = self.model.caption(obs.data)
         target.append(caption, ts=obs.ts, pose=obs.pose, tags=obs.tags, parent_id=obs.id)
 
@@ -209,7 +209,7 @@ class TextEmbeddingTransformer(Transformer[Any, "Embedding"]):
             for obs, emb in zip(page, embeddings, strict=True):
                 target.append(emb, ts=obs.ts, pose=obs.pose, tags=obs.tags, parent_id=obs.id)
 
-    def on_append(self, obs: Observation, target: Stream[Embedding]) -> None:
+    def on_append(self, obs: Observation[Any], target: Stream[Embedding]) -> None:
         emb = self.model.embed_text(str(obs.data))
         if isinstance(emb, list):
             emb = emb[0]
@@ -242,7 +242,7 @@ class EmbeddingTransformer(Transformer[Any, "Embedding"]):
             for obs, emb in zip(page, embeddings, strict=True):
                 target.append(emb, ts=obs.ts, pose=obs.pose, tags=obs.tags, parent_id=obs.id)
 
-    def on_append(self, obs: Observation, target: Stream[Embedding]) -> None:
+    def on_append(self, obs: Observation[Any], target: Stream[Embedding]) -> None:
         emb = self.model.embed(obs.data)
         if isinstance(emb, list):
             emb = emb[0]

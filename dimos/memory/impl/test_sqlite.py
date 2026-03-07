@@ -21,7 +21,7 @@ import pytest
 
 from dimos.memory.impl.sqlite import SqliteSession, SqliteStore
 from dimos.memory.transformer import EmbeddingTransformer
-from dimos.memory.types import _UNSET, EmbeddingObservation, Observation
+from dimos.memory.types import EmbeddingObservation, Observation, _Unset
 from dimos.models.embedding.base import Embedding, EmbeddingModel
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.utils.testing import TimedSensorReplay
@@ -479,7 +479,7 @@ class TestLazyData:
 
         rows = s.fetch()
         obs = rows[0]
-        assert obs._data is _UNSET
+        assert isinstance(obs._data, _Unset)
         assert obs._data_loader is not None
         loaded = obs.data
         assert _img_close(loaded, images[0])

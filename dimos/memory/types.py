@@ -17,39 +17,50 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 import math
-from typing import TYPE_CHECKING, Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeAlias, TypeVar
+
+from dimos.models.embedding.base import Embedding
 
 if TYPE_CHECKING:
-    from dimos.models.embedding.base import Embedding
     from dimos.msgs.geometry_msgs.PoseStamped import PoseStamped
 
 PoseProvider: TypeAlias = Callable[[], Any]  # () -> PoseLike | None
 
-_UNSET: Any = object()
+T = TypeVar("T")
+
+
+class _Unset:
+    """Sentinel indicating no data has been loaded yet."""
+
+    __slots__ = ()
+
+
+_UNSET = _Unset()
 
 
 @dataclass
-class Observation:
+class Observation(Generic[T]):
     id: int
     ts: float | None = None
     pose: PoseStamped | None = None
     tags: dict[str, Any] = field(default_factory=dict)
     parent_id: int | None = field(default=None, repr=False)
-    _data: Any = field(default=_UNSET, repr=False)
-    _data_loader: Callable[[], Any] | None = field(default=None, repr=False, compare=False)
+    _data: T | _Unset = field(default_factory=lambda: _UNSET, repr=False)
+    _data_loader: Callable[[], T] | None = field(default=None, repr=False, compare=False)
 
     @property
-    def data(self) -> Any:
-        if self._data is not _UNSET:
+    def data(self) -> T:
+        if not isinstance(self._data, _Unset):
             return self._data
         if self._data_loader is not None:
-            self._data = self._data_loader()
-            return self._data
+            loaded = self._data_loader()
+            self._data = loaded
+            return loaded
         raise LookupError("No data available; observation was not fetched with payload")
 
 
 @dataclass
-class EmbeddingObservation(Observation):
+class EmbeddingObservation(Observation[Embedding]):
     """Returned by EmbeddingStream terminals.
 
     .data returns the Embedding stored in this stream.
@@ -60,10 +71,6 @@ class EmbeddingObservation(Observation):
     """
 
     similarity: float | None = field(default=None, repr=True)
-
-    @property
-    def data(self) -> Embedding:
-        return cast("Embedding", super().data)
 
     @property
     def embedding(self) -> Embedding:
@@ -85,7 +92,7 @@ class StreamInfo:
 class AfterFilter:
     t: float
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return obs.ts is not None and obs.ts > self.t
 
     def __str__(self) -> str:
@@ -96,7 +103,7 @@ class AfterFilter:
 class BeforeFilter:
     t: float
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return obs.ts is not None and obs.ts < self.t
 
     def __str__(self) -> str:
@@ -108,7 +115,7 @@ class TimeRangeFilter:
     t1: float
     t2: float
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return obs.ts is not None and self.t1 <= obs.ts <= self.t2
 
     def __str__(self) -> str:
@@ -120,7 +127,7 @@ class AtFilter:
     t: float
     tolerance: float
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return obs.ts is not None and abs(obs.ts - self.t) <= self.tolerance
 
     def __str__(self) -> str:
@@ -132,7 +139,7 @@ class NearFilter:
     pose: Any  # PoseLike
     radius: float
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         if obs.pose is None:
             return False
         p1 = obs.pose.position
@@ -148,7 +155,7 @@ class NearFilter:
 class TagsFilter:
     tags: tuple[tuple[str, Any], ...]
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return all(obs.tags.get(k) == v for k, v in self.tags)
 
     def __str__(self) -> str:
@@ -161,7 +168,7 @@ class EmbeddingSearchFilter:
     query: list[float]
     k: int
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return True  # top-k handled as special pass in ListBackend
 
     def __str__(self) -> str:
@@ -173,7 +180,7 @@ class TextSearchFilter:
     text: str
     k: int | None
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         return self.text.lower() in str(obs.data).lower()
 
     def __str__(self) -> str:
@@ -192,7 +199,7 @@ class LineageFilter:
     source_query: StreamQuery
     hops: tuple[str, ...]  # intermediate tables between source and target
 
-    def matches(self, obs: Observation) -> bool:
+    def matches(self, obs: Observation[Any]) -> bool:
         raise NotImplementedError("LineageFilter requires a database backend")
 
     def __str__(self) -> str:

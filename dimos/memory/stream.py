@@ -20,6 +20,7 @@ from typing import (
     Generic,
     Protocol,
     TypeVar,
+    cast,
     overload,
 )
 
@@ -64,7 +65,7 @@ R = TypeVar("R")
 class StreamBackend(Protocol):
     """Backend protocol — implemented by SqliteStreamBackend etc."""
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation]: ...
+    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]: ...
     def execute_count(self, query: StreamQuery) -> int: ...
     def do_append(
         self,
@@ -73,9 +74,9 @@ class StreamBackend(Protocol):
         pose: Any | None,
         tags: dict[str, Any] | None,
         parent_id: int | None = None,
-    ) -> Observation: ...
+    ) -> Observation[Any]: ...
     @property
-    def appended_subject(self) -> Subject[Observation]: ...  # type: ignore[type-arg]
+    def appended_subject(self) -> Subject[Observation[Any]]: ...  # type: ignore[type-arg]
     @property
     def stream_name(self) -> str: ...
 
@@ -145,11 +146,11 @@ class Stream(Generic[T]):
         pose: PoseLike | None = None,
         tags: dict[str, Any] | None = None,
         parent_id: int | None = None,
-    ) -> Observation:
+    ) -> Observation[T]:
         if ts is None and isinstance(payload, Timestamped):
             ts = payload.ts
         backend = self._require_backend()
-        return backend.do_append(payload, ts, pose, tags, parent_id)
+        return cast("Observation[T]", backend.do_append(payload, ts, pose, tags, parent_id))
 
     # ── Temporal filters ──────────────────────────────────────────────
 
@@ -276,7 +277,7 @@ class Stream(Generic[T]):
 
     # ── Iteration ─────────────────────────────────────────────────────
 
-    def __iter__(self) -> Iterator[Observation]:
+    def __iter__(self) -> Iterator[Observation[T]]:
         for page in self.fetch_pages():
             yield from page
 
@@ -285,9 +286,9 @@ class Stream(Generic[T]):
     def fetch(self) -> ObservationSet[T]:
         backend = self._require_backend()
         results = backend.execute_fetch(self._query)
-        return ObservationSet(results, session=self._session)
+        return ObservationSet(cast("list[Observation[T]]", results), session=self._session)
 
-    def fetch_pages(self, batch_size: int = 128) -> Iterator[list[Observation]]:
+    def fetch_pages(self, batch_size: int = 128) -> Iterator[list[Observation[T]]]:
         offset = self._query.offset_val or 0
         total_limit = self._query.limit_val
         emitted = 0
@@ -309,19 +310,19 @@ class Stream(Generic[T]):
             page = backend.execute_fetch(q)
             if not page:
                 break
-            yield page
+            yield cast("list[Observation[T]]", page)
             emitted += len(page)
             if len(page) < page_size:
                 break
             offset += len(page)
 
-    def one(self) -> Observation:
+    def one(self) -> Observation[T]:
         results = self.limit(1).fetch()
         if not results:
             raise LookupError("No matching observation")
         return results[0]
 
-    def last(self) -> Observation:
+    def last(self) -> Observation[T]:
         results = self.order_by("ts", desc=True).limit(1).fetch()
         if not results:
             raise LookupError("No matching observation")
@@ -333,9 +334,9 @@ class Stream(Generic[T]):
 
     # ── Reactive ──────────────────────────────────────────────────────
 
-    def observable(self) -> Observable[Observation]:  # type: ignore[type-arg]
+    def observable(self) -> Observable[Observation[T]]:  # type: ignore[type-arg]
         backend = self._require_backend()
-        raw: Observable[Observation] = backend.appended_subject  # type: ignore[assignment]
+        raw: Observable[Observation[T]] = backend.appended_subject  # type: ignore[assignment]
         if not self._query.filters:
             return raw
         active = [
@@ -344,12 +345,12 @@ class Stream(Generic[T]):
             if not isinstance(f, (EmbeddingSearchFilter, LineageFilter))
         ]
 
-        def _check(o: Observation) -> bool:
+        def _check(o: Observation[T]) -> bool:
             return all(f.matches(o) for f in active)
 
         return raw.pipe(ops.filter(_check))
 
-    def subscribe(self, on_next: Callable[[Observation], None]) -> Disposable:
+    def subscribe(self, on_next: Callable[[Observation[T]], None]) -> Disposable:
         return self.observable().subscribe(on_next=on_next)
 
 
@@ -432,7 +433,7 @@ class EmbeddingStream(Stream[T]):
     def fetch(self) -> ObservationSet[T]:  # type: ignore[override]
         backend = self._require_backend()
         results = backend.execute_fetch(self._query)
-        return ObservationSet(results, session=self._session)
+        return ObservationSet(cast("list[Observation[T]]", results), session=self._session)
 
     def one(self) -> EmbeddingObservation:  # type: ignore[override]
         results = self.limit(1).fetch()
@@ -538,7 +539,7 @@ class _CollectorStream(Stream[R]):
 
     def __init__(self) -> None:
         super().__init__(backend=None)
-        self.results: list[Observation] = []
+        self.results: list[Observation[R]] = []
         self._next_id = 0
 
     def append(
@@ -549,8 +550,8 @@ class _CollectorStream(Stream[R]):
         pose: PoseLike | None = None,
         tags: dict[str, Any] | None = None,
         parent_id: int | None = None,
-    ) -> Observation:
-        obs = Observation(
+    ) -> Observation[R]:
+        obs: Observation[R] = Observation(
             id=self._next_id,
             ts=ts,
             tags=tags or {},
@@ -565,14 +566,14 @@ class _CollectorStream(Stream[R]):
 class ListBackend:
     """In-memory backend that evaluates StreamQuery filters in Python."""
 
-    def __init__(self, observations: list[Observation], name: str = "<memory>") -> None:
+    def __init__(self, observations: list[Observation[Any]], name: str = "<memory>") -> None:
         self._observations = observations
         self._name = name
         from reactivex.subject import Subject
 
-        self._subject: Subject[Observation] = Subject()  # type: ignore[type-arg]
+        self._subject: Subject[Observation[Any]] = Subject()  # type: ignore[type-arg]
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation]:
+    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
         results = list(self._observations)
 
         # Apply non-embedding filters
@@ -629,11 +630,11 @@ class ListBackend:
         pose: Any | None,
         tags: dict[str, Any] | None,
         parent_id: int | None = None,
-    ) -> Observation:
+    ) -> Observation[Any]:
         raise TypeError("ObservationSet is read-only")
 
     @property
-    def appended_subject(self) -> Subject[Observation]:  # type: ignore[type-arg]
+    def appended_subject(self) -> Subject[Observation[Any]]:  # type: ignore[type-arg]
         return self._subject
 
     @property
@@ -650,12 +651,12 @@ class ObservationSet(Stream[T]):
 
     def __init__(
         self,
-        observations: list[Observation],
+        observations: list[Observation[T]],
         *,
         session: Session | None = None,
     ) -> None:
         self._observations = observations
-        backend = ListBackend(observations)
+        backend = ListBackend(cast("list[Observation[Any]]", observations))
         super().__init__(backend=backend, session=session)
 
     def _clone(self, **overrides: Any) -> Stream[T]:
@@ -683,7 +684,7 @@ class ObservationSet(Stream[T]):
         pose: PoseLike | None = None,
         tags: dict[str, Any] | None = None,
         parent_id: int | None = None,
-    ) -> Observation:
+    ) -> Observation[T]:
         raise TypeError("ObservationSet is read-only")
 
     # ── List-like interface ──────────────────────────────────────────
@@ -692,15 +693,15 @@ class ObservationSet(Stream[T]):
         return len(self._observations)
 
     @overload
-    def __getitem__(self, index: int) -> Observation: ...
+    def __getitem__(self, index: int) -> Observation[T]: ...
 
     @overload
-    def __getitem__(self, index: slice) -> list[Observation]: ...
+    def __getitem__(self, index: slice) -> list[Observation[T]]: ...
 
-    def __getitem__(self, index: int | slice) -> Observation | list[Observation]:
+    def __getitem__(self, index: int | slice) -> Observation[T] | list[Observation[T]]:
         return self._observations[index]
 
-    def __iter__(self) -> Iterator[Observation]:
+    def __iter__(self) -> Iterator[Observation[T]]:
         return iter(self._observations)
 
     def __bool__(self) -> bool:

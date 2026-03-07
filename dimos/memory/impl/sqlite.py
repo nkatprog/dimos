@@ -342,10 +342,12 @@ def _compile_count(query: StreamQuery, table: str) -> tuple[str, list[Any]]:
 # ── Near-filter post-processing (exact distance after R*Tree bbox) ───
 
 
-def _apply_near_post_filter(rows: list[Observation], near: NearFilter) -> list[Observation]:
+def _apply_near_post_filter(
+    rows: list[Observation[Any]], near: NearFilter
+) -> list[Observation[Any]]:
     """Post-filter R*Tree candidates by exact Euclidean distance."""
     tp = near.pose.position
-    result: list[Observation] = []
+    result: list[Observation[Any]] = []
     for obs in rows:
         if obs.pose is None:
             continue
@@ -375,10 +377,10 @@ class SqliteStreamBackend:
         self._table = table
         self._pose_provider = pose_provider
         self._codec = codec or PickleCodec()
-        self._subject: Subject[Observation] = Subject()  # type: ignore[type-arg]
+        self._subject: Subject[Observation[Any]] = Subject()  # type: ignore[type-arg]
 
     @property
-    def appended_subject(self) -> Subject[Observation]:  # type: ignore[type-arg]
+    def appended_subject(self) -> Subject[Observation[Any]]:  # type: ignore[type-arg]
         return self._subject
 
     @property
@@ -395,7 +397,7 @@ class SqliteStreamBackend:
         pose: Any | None,
         tags: dict[str, Any] | None,
         parent_id: int | None = None,
-    ) -> Observation:
+    ) -> Observation[Any]:
         if ts is None:
             ts = time.time()
         if pose is None and self._pose_provider is not None:
@@ -455,7 +457,7 @@ class SqliteStreamBackend:
         self._subject.on_next(obs)
         return obs
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation]:
+    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
         sql, params = _compile_query(query, self._table)
         rows = self._conn.execute(sql, params).fetchall()
         observations = [self._row_to_obs(r) for r in rows]
@@ -471,7 +473,7 @@ class SqliteStreamBackend:
         result = self._conn.execute(sql, params).fetchone()
         return result[0] if result else 0  # type: ignore[no-any-return]
 
-    def _row_to_obs(self, row: Any) -> Observation:
+    def _row_to_obs(self, row: Any) -> Observation[Any]:
         row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
         pose = _reconstruct_pose(px, py, pz, qx, qy, qz, qw)
         conn = self._conn
@@ -533,7 +535,7 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
         )
         self._conn.commit()
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation]:
+    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
         emb_filter = None
         for f in query.filters:
             if isinstance(f, EmbeddingSearchFilter):
@@ -552,7 +554,7 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
 
     def _fetch_by_vector(
         self, query: StreamQuery, emb_filter: EmbeddingSearchFilter
-    ) -> list[Observation]:
+    ) -> list[Observation[Any]]:
         """Fetch using vec0 similarity search, then apply remaining filters."""
         vec_sql = (
             f"SELECT rowid, distance FROM {self._table}_vec "
@@ -586,7 +588,7 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
         )
         rows = self._conn.execute(sql, params).fetchall()
 
-        observations = [self._row_to_obs(r) for r in rows]
+        observations: list[Observation[Any]] = [self._row_to_obs(r) for r in rows]
 
         # Populate similarity scores from vec0 cosine distance (0=identical, 2=opposite)
         for obs in observations:
@@ -603,7 +605,7 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
 
         return observations
 
-    def _row_to_obs(self, row: Any) -> Observation:
+    def _row_to_obs(self, row: Any) -> EmbeddingObservation:
         row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
         pose = _reconstruct_pose(px, py, pz, qx, qy, qz, qw)
         conn = self._conn
@@ -648,7 +650,7 @@ class SqliteTextBackend(SqliteStreamBackend):
             (row_id, text),
         )
 
-    def execute_fetch(self, query: StreamQuery) -> list[Observation]:
+    def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
         text_filter = None
         for f in query.filters:
             if isinstance(f, TextSearchFilter):
@@ -662,7 +664,7 @@ class SqliteTextBackend(SqliteStreamBackend):
 
     def _fetch_by_text(
         self, query: StreamQuery, text_filter: TextSearchFilter
-    ) -> list[Observation]:
+    ) -> list[Observation[Any]]:
         fts_sql = f"SELECT rowid, rank FROM {self._table}_fts WHERE content MATCH ? ORDER BY rank"
         fts_params: list[Any] = [text_filter.text]
         if text_filter.k is not None:
