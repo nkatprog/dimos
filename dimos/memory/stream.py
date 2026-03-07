@@ -14,11 +14,13 @@
 
 from __future__ import annotations
 
+import copy
 from typing import (
     TYPE_CHECKING,
     Any,
     Generic,
     Protocol,
+    Self,
     TypeVar,
     cast,
     overload,
@@ -101,21 +103,17 @@ class Stream(Generic[T]):
         self._session: Session | None = session
         self._payload_type: type | None = payload_type
 
-    def _clone(self, **overrides: Any) -> Stream[T]:
-        """Return a new Stream with updated query fields."""
+    def _clone(self, **overrides: Any) -> Self:
+        """Return a shallow copy with updated query fields."""
         q = self._query
-        new_query = StreamQuery(
+        clone = copy.copy(self)
+        clone._query = StreamQuery(
             filters=overrides.get("filters", q.filters),
             order_field=overrides.get("order_field", q.order_field),
             order_desc=overrides.get("order_desc", q.order_desc),
             limit_val=overrides.get("limit_val", q.limit_val),
             offset_val=overrides.get("offset_val", q.offset_val),
         )
-        clone: Stream[T] = self.__class__.__new__(self.__class__)
-        clone._backend = self._backend
-        clone._query = new_query
-        clone._session = self._session
-        clone._payload_type = self._payload_type
         return clone
 
     def __repr__(self) -> str:
@@ -126,7 +124,7 @@ class Stream(Generic[T]):
         query_str = str(self._query)
         return f"{head} | {query_str}" if query_str else head
 
-    def _with_filter(self, f: Filter) -> Stream[T]:
+    def _with_filter(self, f: Filter) -> Self:
         return self._clone(filters=(*self._query.filters, f))
 
     def _require_backend(self) -> StreamBackend:
@@ -380,12 +378,6 @@ class EmbeddingStream(Stream[T]):
             )
         return self._embedding_model
 
-    def _clone(self, **overrides: Any) -> Stream[T]:
-        clone = super()._clone(**overrides)
-        if isinstance(clone, EmbeddingStream):
-            clone._embedding_model = self._embedding_model
-        return clone
-
     def search_embedding(
         self,
         query: Embedding | list[float] | str | Any,
@@ -421,14 +413,7 @@ class EmbeddingStream(Stream[T]):
                 emb = emb[0]
             return self.search_embedding(emb, k=k)
 
-        clone = self._with_filter(EmbeddingSearchFilter(vec, k))
-        return EmbeddingStream(
-            backend=clone._backend,
-            query=clone._query,
-            session=clone._session,
-            embedding_model=self._embedding_model,
-            payload_type=clone._payload_type,
-        )
+        return self._with_filter(EmbeddingSearchFilter(vec, k))
 
     def fetch(self) -> ObservationSet[T]:  # type: ignore[override]
         backend = self._require_backend()
@@ -452,14 +437,7 @@ class TextStream(Stream[T]):
     """Stream with an FTS5 index. Adds search_text()."""
 
     def search_text(self, text: str, *, k: int | None = None) -> TextStream[T]:
-        clone = self._with_filter(TextSearchFilter(text, k))
-        ts: TextStream[T] = TextStream(
-            backend=clone._backend,
-            query=clone._query,
-            session=clone._session,
-            payload_type=clone._payload_type,
-        )
-        return ts
+        return self._with_filter(TextSearchFilter(text, k))
 
 
 class TransformStream(Stream[R]):
@@ -478,15 +456,6 @@ class TransformStream(Stream[R]):
         self._transformer = transformer
         self._live = live
         self._backfill_only = backfill_only
-
-    def _clone(self, **overrides: Any) -> Stream[R]:
-        clone = super()._clone(**overrides)
-        if isinstance(clone, TransformStream):
-            clone._source = self._source
-            clone._transformer = self._transformer
-            clone._live = self._live
-            clone._backfill_only = self._backfill_only
-        return clone
 
     def __repr__(self) -> str:
         type_name = self._transformer.output_type.__name__ if self._transformer.output_type else "?"
@@ -659,22 +628,13 @@ class ObservationSet(Stream[T]):
         backend = ListBackend(cast("list[Observation[Any]]", observations))
         super().__init__(backend=backend, session=session)
 
-    def _clone(self, **overrides: Any) -> Stream[T]:
-        """Return a plain Stream backed by same ListBackend (preserves lazy filter chaining)."""
-        q = self._query
-        new_query = StreamQuery(
-            filters=overrides.get("filters", q.filters),
-            order_field=overrides.get("order_field", q.order_field),
-            order_desc=overrides.get("order_desc", q.order_desc),
-            limit_val=overrides.get("limit_val", q.limit_val),
-            offset_val=overrides.get("offset_val", q.offset_val),
+    def _clone(self, **overrides: Any) -> Stream[T]:  # type: ignore[override]
+        """Downgrade to plain Stream — don't carry _observations through chaining."""
+        base: Stream[T] = Stream(
+            backend=self._backend, session=self._session, payload_type=self._payload_type
         )
-        return Stream(
-            backend=self._backend,
-            query=new_query,
-            session=self._session,
-            payload_type=self._payload_type,
-        )
+        base._query = self._query
+        return base._clone(**overrides)
 
     def append(
         self,
