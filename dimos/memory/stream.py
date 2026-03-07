@@ -318,7 +318,11 @@ class Stream(Generic[T]):
     def fetch(self) -> ObservationSet[T]:
         backend = self._require_backend()
         results = backend.execute_fetch(self._query)
-        return ObservationSet(cast("list[Observation[T]]", results), session=self._session)
+        return ObservationSet(
+            cast("list[Observation[T]]", results),
+            session=self._session,
+            payload_type=self._payload_type,
+        )
 
     def fetch_pages(self, batch_size: int = 128) -> Iterator[list[Observation[T]]]:
         offset = self._query.offset_val or 0
@@ -348,7 +352,7 @@ class Stream(Generic[T]):
                 break
             offset += len(page)
 
-    def one(self) -> Observation[T]:
+    def first(self) -> Observation[T]:
         results = self.limit(1).fetch()
         if not results:
             raise LookupError("No matching observation")
@@ -363,6 +367,25 @@ class Stream(Generic[T]):
     def count(self) -> int:
         backend = self._require_backend()
         return backend.execute_count(self._query)
+
+    def exists(self) -> bool:
+        return self.count() > 0
+
+    def get_time_range(self) -> tuple[float, float]:
+        return (self.first().ts, self.last().ts)
+
+    def summary(self) -> str:
+        from datetime import datetime, timezone
+
+        n = self.count()
+        if n == 0:
+            return f"{self!r}: empty"
+        t0, t1 = self.get_time_range()
+        fmt = "%Y-%m-%d %H:%M:%S"
+        dt0 = datetime.fromtimestamp(t0, tz=timezone.utc).strftime(fmt)
+        dt1 = datetime.fromtimestamp(t1, tz=timezone.utc).strftime(fmt)
+        dur = t1 - t0
+        return f"{self!r}: {n} items, {dt0} — {dt1} ({dur:.1f}s)"
 
     # ── Reactive ──────────────────────────────────────────────────────
 
@@ -454,7 +477,7 @@ class EmbeddingStream(Stream[T]):
         results = backend.execute_fetch(self._query)
         return ObservationSet(cast("list[Observation[T]]", results), session=self._session)
 
-    def one(self) -> EmbeddingObservation:  # type: ignore[override]
+    def first(self) -> EmbeddingObservation:  # type: ignore[override]
         results = self.limit(1).fetch()
         if not results:
             raise LookupError("No matching observation")
@@ -681,10 +704,23 @@ class ObservationSet(Stream[T]):
         observations: list[Observation[T]],
         *,
         session: Session | None = None,
+        payload_type: type | None = None,
     ) -> None:
         self._observations = observations
         backend = ListBackend(cast("list[Observation[Any]]", observations))
-        super().__init__(backend=backend, session=session)
+        super().__init__(backend=backend, session=session, payload_type=payload_type)
+
+    def _rich_text(self) -> Text:
+        t = Text()
+        type_name = self._payload_type.__name__ if self._payload_type else "?"
+        t.append("ObservationSet", style="bold cyan")
+        t.append("[", style="dim")
+        t.append(type_name, style="yellow")
+        t.append("]", style="dim")
+        t.append("(", style="dim")
+        t.append(f"{len(self._observations)} items", style="green")
+        t.append(")", style="dim")
+        return t
 
     def _clone(self, **overrides: Any) -> Stream[T]:  # type: ignore[override]
         """Downgrade to plain Stream — don't carry _observations through chaining."""

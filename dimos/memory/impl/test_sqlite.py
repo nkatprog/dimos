@@ -109,13 +109,13 @@ class TestStreamBasics:
         s = session.stream("images", Image)
         s.append(images[0])
 
-        obs = s.one()
+        obs = s.first()
         assert _img_close(obs.data, images[0])
 
     def test_one_empty_raises(self, session: SqliteSession) -> None:
         s = session.stream("images", Image)
         with pytest.raises(LookupError):
-            s.one()
+            s.first()
 
 
 class TestFilters:
@@ -465,7 +465,7 @@ class TestTransformStore:
 
         stored = s.transform(lambda im: im.height, backfill_only=True).store("heights_bo", int)
         assert stored.count() == 1
-        assert stored.one().data == images[0].height
+        assert stored.first().data == images[0].height
 
         s.append(images[1], ts=2.0)
         assert stored.count() == 1  # still 1
