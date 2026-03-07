@@ -33,7 +33,6 @@ from dimos.msgs.sensor_msgs import Image, PointCloud2
 from dimos.msgs.std_msgs import Bool
 from dimos.navigation.frontier_exploration import wavefront_frontier_explorer
 from dimos.protocol.pubsub.impl.lcmpubsub import LCM
-from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
 
 
 def _convert_camera_info(camera_info: Any) -> Any:
@@ -116,40 +115,44 @@ _camera = (
     else autoconnect()
 )
 
-uintree_g1_primitive_no_nav = (
-    autoconnect(
-        _with_vis,
-        _camera,
-        voxel_mapper(voxel_size=0.1),
-        cost_mapper(),
-        wavefront_frontier_explorer(),
-        # Visualization
-        websocket_vis(),
-    )
-    .global_config(n_workers=4, robot_model="unitree_g1")
-    .transports(
-        {
-            # G1 uses Twist for movement commands
-            ("cmd_vel", Twist): LCMTransport("/cmd_vel", Twist),
-            # State estimation from ROS
-            ("state_estimation", Odometry): LCMTransport("/state_estimation", Odometry),
-            # Odometry output from ROSNavigationModule
-            ("odom", PoseStamped): LCMTransport("/odom", PoseStamped),
-            # Navigation module topics from nav_bot
-            ("goal_req", PoseStamped): LCMTransport("/goal_req", PoseStamped),
-            ("goal_active", PoseStamped): LCMTransport("/goal_active", PoseStamped),
-            ("path_active", Path): LCMTransport("/path_active", Path),
-            ("pointcloud", PointCloud2): LCMTransport("/lidar", PointCloud2),
-            ("global_pointcloud", PointCloud2): LCMTransport("/map", PointCloud2),
-            # Original navigation topics for backwards compatibility
-            ("goal_pose", PoseStamped): LCMTransport("/goal_pose", PoseStamped),
-            ("goal_reached", Bool): LCMTransport("/goal_reached", Bool),
-            ("cancel_goal", Bool): LCMTransport("/cancel_goal", Bool),
-            # Camera topics
-            ("color_image", Image): LCMTransport("/color_image", Image),
-            ("camera_info", CameraInfo): LCMTransport("/camera_info", CameraInfo),
-        }
-    )
+# Command center (websocket_vis) is only needed for the rerun-web dashboard.
+_core_modules = autoconnect(
+    _with_vis,
+    _camera,
+    voxel_mapper(voxel_size=0.1),
+    cost_mapper(),
+    wavefront_frontier_explorer(),
+)
+
+if global_config.viewer_backend == "rerun-web":
+    from dimos.web.websocket_vis.websocket_vis_module import websocket_vis
+
+    _core_modules = autoconnect(_core_modules, websocket_vis())
+
+uintree_g1_primitive_no_nav = _core_modules.global_config(
+    n_workers=4, robot_model="unitree_g1"
+).transports(
+    {
+        # G1 uses Twist for movement commands
+        ("cmd_vel", Twist): LCMTransport("/cmd_vel", Twist),
+        # State estimation from ROS
+        ("state_estimation", Odometry): LCMTransport("/state_estimation", Odometry),
+        # Odometry output from ROSNavigationModule
+        ("odom", PoseStamped): LCMTransport("/odom", PoseStamped),
+        # Navigation module topics from nav_bot
+        ("goal_req", PoseStamped): LCMTransport("/goal_req", PoseStamped),
+        ("goal_active", PoseStamped): LCMTransport("/goal_active", PoseStamped),
+        ("path_active", Path): LCMTransport("/path_active", Path),
+        ("pointcloud", PointCloud2): LCMTransport("/lidar", PointCloud2),
+        ("global_pointcloud", PointCloud2): LCMTransport("/map", PointCloud2),
+        # Original navigation topics for backwards compatibility
+        ("goal_pose", PoseStamped): LCMTransport("/goal_pose", PoseStamped),
+        ("goal_reached", Bool): LCMTransport("/goal_reached", Bool),
+        ("cancel_goal", Bool): LCMTransport("/cancel_goal", Bool),
+        # Camera topics
+        ("color_image", Image): LCMTransport("/color_image", Image),
+        ("camera_info", CameraInfo): LCMTransport("/camera_info", CameraInfo),
+    }
 )
 
 __all__ = ["uintree_g1_primitive_no_nav"]
