@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -69,6 +70,8 @@ from dimos.memory.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from dimos.memory.types import PoseProvider
     from dimos.models.embedding.base import EmbeddingModel
 
@@ -473,26 +476,35 @@ class SqliteStreamBackend:
         result = self._conn.execute(sql, params).fetchone()
         return result[0] if result else 0  # type: ignore[no-any-return]
 
-    def _row_to_obs(self, row: Any) -> Observation[Any]:
-        row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
-        pose = _reconstruct_pose(px, py, pz, qx, qy, qz, qw)
+    def _make_loader(self, row_id: int) -> Callable[[], Any]:
         conn = self._conn
         table = self._table
         codec = self._codec
+        owner_tid = threading.get_ident()
 
         def loader() -> Any:
+            if threading.get_ident() != owner_tid:
+                raise RuntimeError(
+                    "Observation.data accessed from a different thread than the one that "
+                    "fetched it. Access .data on the original thread first to cache it, "
+                    "or use obs.load() before passing across threads."
+                )
             r = conn.execute(f"SELECT data FROM {table}_payload WHERE id = ?", (row_id,)).fetchone()
             if r is None:
                 raise LookupError(f"No payload for id={row_id}")
             return codec.decode(r[0])
 
+        return loader
+
+    def _row_to_obs(self, row: Any) -> Observation[Any]:
+        row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
         return Observation(
             id=row_id,
             ts=ts,
-            pose=pose,
+            pose=_reconstruct_pose(px, py, pz, qx, qy, qz, qw),
             tags=_deserialize_tags(tags_json),
             parent_id=pid,
-            _data_loader=loader,
+            _data_loader=self._make_loader(row_id),
         )
 
 
@@ -607,24 +619,13 @@ class SqliteEmbeddingBackend(SqliteStreamBackend):
 
     def _row_to_obs(self, row: Any) -> EmbeddingObservation:
         row_id, ts, px, py, pz, qx, qy, qz, qw, tags_json, pid = row
-        pose = _reconstruct_pose(px, py, pz, qx, qy, qz, qw)
-        conn = self._conn
-        table = self._table
-        codec = self._codec
-
-        def loader() -> Any:
-            r = conn.execute(f"SELECT data FROM {table}_payload WHERE id = ?", (row_id,)).fetchone()
-            if r is None:
-                raise LookupError(f"No payload for id={row_id}")
-            return codec.decode(r[0])
-
         return EmbeddingObservation(
             id=row_id,
             ts=ts,
-            pose=pose,
+            pose=_reconstruct_pose(px, py, pz, qx, qy, qz, qw),
             tags=_deserialize_tags(tags_json),
             parent_id=pid,
-            _data_loader=loader,
+            _data_loader=self._make_loader(row_id),
         )
 
 

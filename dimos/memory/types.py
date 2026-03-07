@@ -58,6 +58,11 @@ class Observation(Generic[T]):
             return loaded
         raise LookupError("No data available; observation was not fetched with payload")
 
+    def load(self) -> Observation[T]:
+        """Force-load .data and return self. Safe to pass across threads after this."""
+        self.data  # noqa: B018
+        return self
+
 
 @dataclass
 class EmbeddingObservation(Observation[Embedding]):
