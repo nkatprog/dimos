@@ -244,7 +244,7 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
         self.connection.balance_stand()
         if self._global_config.disable_obstacle_avoidance:
             self.connection.disable_obstacle_avoidance()
-        
+
         # self.record("go2_bigoffice")
 
     @rpc
