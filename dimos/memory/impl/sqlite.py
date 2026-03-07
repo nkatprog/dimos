@@ -935,7 +935,7 @@ class SqliteSession(Session):
 
         # Subscribe to live updates
         if transformer.supports_live and not backfill_only:
-            source.appended.subscribe(on_next=lambda obs: transformer.on_append(obs, target))
+            source.subscribe(lambda obs: transformer.on_append(obs, target))
 
         return target
 

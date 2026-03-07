@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
     from reactivex import Observable
+    from reactivex.abc import DisposableBase as Disposable
     from reactivex.subject import Subject
 
     from dimos.models.embedding.base import Embedding, EmbeddingModel
@@ -321,8 +322,7 @@ class Stream(Generic[T]):
 
     # ── Reactive ──────────────────────────────────────────────────────
 
-    @property
-    def appended(self) -> Observable[Observation]:  # type: ignore[type-arg]
+    def observable(self) -> Observable[Observation]:  # type: ignore[type-arg]
         backend = self._require_backend()
         raw: Observable[Observation] = backend.appended_subject  # type: ignore[assignment]
         if not self._query.filters:
@@ -337,6 +337,9 @@ class Stream(Generic[T]):
             return all(f.matches(o) for f in active)
 
         return raw.pipe(ops.filter(_check))
+
+    def subscribe(self, on_next: Callable[[Observation], None]) -> Disposable:
+        return self.observable().subscribe(on_next=on_next)
 
 
 class EmbeddingStream(Stream[T]):

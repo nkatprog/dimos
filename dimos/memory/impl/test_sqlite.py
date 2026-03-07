@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from dimos.memory.impl.sqlite import SqliteSession, SqliteStore
-from dimos.memory.transformer import EmbeddingTransformer, TextEmbeddingTransformer
+from dimos.memory.transformer import EmbeddingTransformer
 from dimos.memory.types import _UNSET, EmbeddingObservation, Observation
 from dimos.models.embedding.base import Embedding, EmbeddingModel
 from dimos.msgs.sensor_msgs.Image import Image
@@ -293,105 +293,6 @@ class TestTextStorage:
         store2.stop()
 
 
-class TestTextEmbeddingTransformer:
-    """Test text → embedding → semantic search pipeline."""
-
-    def test_text_to_embedding_backfill(self, session: SqliteSession) -> None:
-        """Backfill: store text, transform to embeddings, search by text."""
-
-        class FakeTextEmbedder(EmbeddingModel):
-            device = "cpu"
-
-            def embed(self, *imgs: Image) -> Embedding | list[Embedding]:  # type: ignore[override]
-                raise NotImplementedError
-
-            def embed_text(self, *texts: str) -> Embedding | list[Embedding]:
-                results = []
-                for text in texts:
-                    # Simple fake: hash text to a stable vector
-                    h = hash(text) % 1000 / 1000.0
-                    results.append(Embedding(np.array([h, 1.0 - h, 0.0, 0.0], dtype=np.float32)))
-                return results if len(results) > 1 else results[0]
-
-        logs = session.stream("te_logs", str)
-        logs.append("Robot navigated to kitchen", ts=1.0)
-        logs.append("Battery low warning", ts=2.0)
-        logs.append("Robot navigated to bedroom", ts=3.0)
-
-        embedder = FakeTextEmbedder()
-        emb_stream = logs.transform(TextEmbeddingTransformer(embedder)).store("te_log_embeddings")
-
-        assert emb_stream.count() == 3
-
-        # Search — the model embeds the query text into the same space
-        results = emb_stream.search_embedding("Robot navigated to kitchen", k=1).fetch()
-        assert len(results) == 1
-        # Auto-projects to source — data should be original text
-        assert isinstance(results[0].data, str)
-
-    def test_text_embedding_live(self, session: SqliteSession) -> None:
-        """Live mode: new text is embedded automatically."""
-
-        class FakeTextEmbedder(EmbeddingModel):
-            device = "cpu"
-
-            def embed(self, *imgs: Image) -> Embedding | list[Embedding]:  # type: ignore[override]
-                raise NotImplementedError
-
-            def embed_text(self, *texts: str) -> Embedding | list[Embedding]:
-                results = []
-                for text in texts:
-                    h = hash(text) % 1000 / 1000.0
-                    results.append(Embedding(np.array([h, 1.0 - h, 0.0], dtype=np.float32)))
-                return results if len(results) > 1 else results[0]
-
-        logs = session.stream("te_live_logs", str)
-        emb_stream = logs.transform(TextEmbeddingTransformer(FakeTextEmbedder()), live=True).store(
-            "te_live_embs"
-        )
-
-        assert emb_stream.count() == 0  # no backfill
-
-        logs.append("New log entry", ts=1.0)
-        assert emb_stream.count() == 1
-
-        logs.append("Another log entry", ts=2.0)
-        assert emb_stream.count() == 2
-
-    def test_text_embedding_search_projects_to_source(self, session: SqliteSession) -> None:
-        """search_embedding auto-projects back to source text stream."""
-
-        class FakeTextEmbedder(EmbeddingModel):
-            device = "cpu"
-
-            def embed(self, *imgs: Image) -> Embedding | list[Embedding]:  # type: ignore[override]
-                raise NotImplementedError
-
-            def embed_text(self, *texts: str) -> Embedding | list[Embedding]:
-                results = []
-                for text in texts:
-                    # "kitchen" texts get similar vectors
-                    if "kitchen" in text.lower():
-                        results.append(Embedding(np.array([1.0, 0.0, 0.0], dtype=np.float32)))
-                    else:
-                        results.append(Embedding(np.array([0.0, 1.0, 0.0], dtype=np.float32)))
-                return results if len(results) > 1 else results[0]
-
-        logs = session.stream("te_proj_logs", str)
-        logs.append("Robot entered kitchen", ts=1.0)
-        logs.append("Battery warning", ts=2.0)
-        logs.append("Cleaning kitchen floor", ts=3.0)
-
-        emb_stream = logs.transform(TextEmbeddingTransformer(FakeTextEmbedder())).store(
-            "te_proj_embs"
-        )
-
-        # Search for kitchen-related logs
-        results = emb_stream.search_embedding("kitchen", k=2).fetch()
-        assert len(results) == 2
-        assert all("kitchen" in r.data.lower() for r in results)
-
-
 class TestEmbeddingStream:
     def test_create_and_append(self, session: SqliteSession) -> None:
         es = session.embedding_stream("emb", vec_dimensions=4)
@@ -487,7 +388,7 @@ class TestReactive:
     def test_appended_observable(self, session: SqliteSession, images: list[Image]) -> None:
         s = session.stream("images", Image)
         received: list[Observation] = []
-        s.appended.subscribe(on_next=received.append)
+        s.subscribe(received.append)
 
         s.append(images[0])
         s.append(images[1])
@@ -1080,7 +981,7 @@ class TestFilteredAppended:
     def test_unfiltered_appended(self, session: SqliteSession, images: list[Image]) -> None:
         s = session.stream("fa_unfilt", Image)
         received: list[Observation] = []
-        s.appended.subscribe(on_next=received.append)
+        s.subscribe(received.append)
 
         s.append(images[0], ts=1.0)
         s.append(images[1], ts=5.0)
@@ -1089,7 +990,7 @@ class TestFilteredAppended:
     def test_filtered_appended(self, session: SqliteSession, images: list[Image]) -> None:
         s = session.stream("fa_filt", Image)
         received: list[Observation] = []
-        s.after(3.0).appended.subscribe(on_next=received.append)
+        s.after(3.0).subscribe(received.append)
 
         s.append(images[0], ts=1.0)  # filtered out
         s.append(images[1], ts=5.0)  # passes
@@ -1099,7 +1000,7 @@ class TestFilteredAppended:
     def test_tag_filtered_appended(self, session: SqliteSession, images: list[Image]) -> None:
         s = session.stream("fa_tag", Image)
         received: list[Observation] = []
-        s.filter_tags(cam="front").appended.subscribe(on_next=received.append)
+        s.filter_tags(cam="front").subscribe(received.append)
 
         s.append(images[0], tags={"cam": "front"})
         s.append(images[1], tags={"cam": "rear"})
