@@ -61,7 +61,7 @@ class Go2ConnectionProtocol(Protocol):
     def standup(self) -> bool: ...
     def liedown(self) -> bool: ...
     def balance_stand(self) -> bool: ...
-    def disable_obstacle_avoidance(self) -> None: ...
+    def set_obstacle_avoidance(self, enabled: bool = True) -> None: ...
     def publish_request(self, topic: str, data: dict) -> dict: ...  # type: ignore[type-arg]
 
 
@@ -127,7 +127,7 @@ class ReplayConnection(UnitreeWebRTCConnection):
     def balance_stand(self) -> bool:
         return True
 
-    def disable_obstacle_avoidance(self) -> None:
+    def set_obstacle_avoidance(self, enabled: bool = True) -> None:
         pass
 
     @simple_mcache
@@ -242,8 +242,7 @@ class GO2Connection(Module, spec.Camera, spec.Pointcloud):
         self.standup()
         time.sleep(3)
         self.connection.balance_stand()
-        if self._global_config.disable_obstacle_avoidance:
-            self.connection.disable_obstacle_avoidance()
+        self.connection.set_obstacle_avoidance(self._global_config.obstacle_avoidance)
 
         # self.record("go2_bigoffice")
 

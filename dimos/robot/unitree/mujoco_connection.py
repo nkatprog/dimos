@@ -232,7 +232,7 @@ class MujocoConnection:
     def balance_stand(self) -> bool:
         return True
 
-    def disable_obstacle_avoidance(self) -> None:
+    def set_obstacle_avoidance(self, enabled: bool = True) -> None:
         pass
 
     def get_video_frame(self) -> NDArray[Any] | None:

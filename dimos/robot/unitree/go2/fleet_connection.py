@@ -70,8 +70,7 @@ class Go2FleetConnection(GO2Connection):
         super().start()
         for conn in self._extra_connections:
             conn.balance_stand()
-            if self._global_config.disable_obstacle_avoidance:
-                conn.disable_obstacle_avoidance()
+            conn.set_obstacle_avoidance(self._global_config.obstacle_avoidance)
 
     @rpc
     def stop(self) -> None:

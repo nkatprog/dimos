@@ -47,7 +47,7 @@ class GlobalConfig(BaseSettings):
     planner_strategy: NavigationStrategy = "simple"
     planner_robot_speed: float | None = None
     dtop: bool = False
-    disable_obstacle_avoidance: bool = False
+    obstacle_avoidance: bool = True
 
     model_config = SettingsConfigDict(
         env_file=".env",

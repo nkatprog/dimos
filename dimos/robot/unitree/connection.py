@@ -282,10 +282,10 @@ class UnitreeWebRTCConnection(Resource):
             self.publish_request(RTC_TOPIC["SPORT_MOD"], {"api_id": SPORT_CMD["BalanceStand"]})
         )
 
-    def disable_obstacle_avoidance(self) -> None:
+    def set_obstacle_avoidance(self, enabled: bool = True) -> None:
         self.publish_request(
             RTC_TOPIC["OBSTACLES_AVOID"],
-            {"api_id": 1001, "parameter": {"enable": 0}},
+            {"api_id": 1001, "parameter": {"enable": int(enabled)}},
         )
 
     def liedown(self) -> bool:
