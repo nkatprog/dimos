@@ -167,10 +167,10 @@ class TestFilters:
         assert _img_close(rows[0].data, images[0])
 
     def test_chained_filters(self, session: SqliteSession, images: list[Image]) -> None:
-        s = session.stream("data", Image)
+        s = session.stream("chained_filter_data", Image)
         s.append(images[0], ts=1.0, tags={"cam": "front"})
         s.append(images[1], ts=5.0, tags={"cam": "front"})
-        s.append(images[2], ts=5.0, tags={"cam": "rear"})
+        s.append(images[2], ts=6.0, tags={"cam": "rear"})
 
         rows = s.after(3.0).filter_tags(cam="front").fetch()
         assert len(rows) == 1

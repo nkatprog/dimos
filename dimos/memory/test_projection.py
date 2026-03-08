@@ -25,6 +25,7 @@ from dimos.memory.transformer import (
 )
 from dimos.models.embedding.base import Embedding
 from dimos.models.embedding.clip import CLIPModel
+from dimos.models.vl.florence import CaptionDetail, Florence2Model
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.utils.data import get_data
@@ -119,19 +120,65 @@ def test_make_caption(session, clip):
 
 @pytest.mark.tool
 def test_query_embeddings(session, clip):
+    print("\n")
+
     embeddings = session.streams.clip_embeddings.search_embedding("supermarket", k=5, model=clip)
 
-    caption_search = session.streams.captions.near(embeddings, radius=1.0)
+    print(embeddings)
+    florence = Florence2Model(detail=CaptionDetail.NORMAL)
+    florence.start()
+
+    # ~600 results:
+    # images = session.streams.sharp_images.near(embeddings, radius=1.0).fetch()
+    # caption_search = images.transform(
+    #     CaptionTransformer(florence)
+    # )
+
+    # 3 results
+    caption_search = session.streams.sharp_images.near(embeddings).transform(
+        CaptionTransformer(florence)
+    )
+
     print(caption_search)
 
     captions = caption_search.fetch()
 
     print(captions.summary())
+    florence.stop()
+
     for obs in captions:
-        print(obs.data)
+        print(obs.id, obs.data)
 
     images = session.streams.color_image.near(embeddings, radius=1.0).fetch()
+
     print(images)
+
+
+def test_count_comparison(session, clip):
+    """Compare fetch-then-transform vs transform-then-fetch counts."""
+    print("\n")
+    embeddings = session.streams.clip_embeddings.search_embedding("supermarket", k=5, model=clip)
+
+    # Count from near() directly
+    near_stream = session.streams.color_image.near(embeddings, radius=1.0)
+    fetched = near_stream.fetch()
+    print(f"near().fetch() count: {len(fetched)}")
+
+    # Approach 1: fetch first, then transform with identity lambda
+    result1 = fetched.transform(lambda x: x).fetch()
+    print(f"fetch().transform(id).fetch() count: {len(result1)}")
+
+    # Approach 2: transform on lazy stream, then fetch
+    near_stream2 = session.streams.color_image.near(embeddings, radius=1.0)
+    result2 = near_stream2.transform(lambda x: x).fetch()
+    print(f"near().transform(id).fetch() count: {len(result2)}")
+
+    assert len(fetched) == len(result1), (
+        f"fetch-then-transform mismatch: {len(fetched)} vs {len(result1)}"
+    )
+    assert len(fetched) == len(result2), (
+        f"transform-then-fetch mismatch: {len(fetched)} vs {len(result2)}"
+    )
 
 
 @pytest.mark.tool
@@ -154,10 +201,7 @@ def test_search_embeddings(session, clip):
     print(results)
     results = project.fetch()
     print(results)
+    results = project.fetch()
     print(results)
-    print(results)
-    print(results)
-    print(results)
-    print(results)
-    print(results)
+    results = project.fetch()
     print(results)

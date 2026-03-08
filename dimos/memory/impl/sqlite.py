@@ -256,25 +256,25 @@ def _compile_query(query: StreamQuery, table: str) -> tuple[str, list[Any]]:
 
     for f in query.filters:
         if isinstance(f, NearFilter):
-            # R*Tree bounding-box join
+            # R*Tree bounding-box pre-filter + exact Euclidean distance in SQL
             joins.append(f"JOIN {table}_rtree AS r ON r.id = {table}.id")
+            p = f.pose.position
+            x, y, z = p.x, p.y, p.z
             where_parts.append(
                 "r.min_x >= ? AND r.max_x <= ? AND "
                 "r.min_y >= ? AND r.max_y <= ? AND "
                 "r.min_z >= ? AND r.max_z <= ?"
             )
-            p = f.pose.position
-            x, y, z = p.x, p.y, p.z
             params.extend(
-                [
-                    x - f.radius,
-                    x + f.radius,
-                    y - f.radius,
-                    y + f.radius,
-                    z - f.radius,
-                    z + f.radius,
-                ]
+                [x - f.radius, x + f.radius, y - f.radius, y + f.radius, z - f.radius, z + f.radius]
             )
+            # Exact spherical check so LIMIT/OFFSET work correctly
+            where_parts.append(
+                f"({table}.pose_x - ?) * ({table}.pose_x - ?) + "
+                f"({table}.pose_y - ?) * ({table}.pose_y - ?) + "
+                f"({table}.pose_z - ?) * ({table}.pose_z - ?) <= ? * ?"
+            )
+            params.extend([x, x, y, y, z, z, f.radius, f.radius])
         else:
             sql_frag, p = _compile_filter(f, table)
             where_parts.append(sql_frag)
@@ -464,13 +464,7 @@ class SqliteStreamBackend:
     def execute_fetch(self, query: StreamQuery) -> list[Observation[Any]]:
         sql, params = _compile_query(query, self._table)
         rows = self._conn.execute(sql, params).fetchall()
-        observations = [self._row_to_obs(r) for r in rows]
-
-        near = _has_near_filter(query)
-        if near is not None:
-            observations = _apply_near_post_filter(observations, near)
-
-        return observations
+        return [self._row_to_obs(r) for r in rows]
 
     def execute_count(self, query: StreamQuery) -> int:
         sql, params = _compile_count(query, self._table)
