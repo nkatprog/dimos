@@ -7,21 +7,21 @@ from dimos.memory2.buffer import (
     KeepLast,
     Unbounded,
 )
-from dimos.memory2.store import ListStore, Session, Store, StreamNamespace
-from dimos.memory2.stream import Stream
-from dimos.memory2.transform import FnTransformer, QualityWindow, Transformer
-from dimos.memory2.type import (
+from dimos.memory2.filter import (
     AfterFilter,
     AtFilter,
     BeforeFilter,
     Filter,
     NearFilter,
-    Observation,
     PredicateFilter,
     StreamQuery,
     TagsFilter,
     TimeRangeFilter,
 )
+from dimos.memory2.store import ListStore, Session, Store, StreamNamespace
+from dimos.memory2.stream import Stream
+from dimos.memory2.transform import FnTransformer, QualityWindow, Transformer
+from dimos.memory2.type import Observation
 
 __all__ = [
     "AfterFilter",

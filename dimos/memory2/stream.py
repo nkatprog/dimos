@@ -19,24 +19,25 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from dimos.memory2.backend import Backend
 from dimos.memory2.buffer import BackpressureBuffer, ClosedError, KeepLast
-from dimos.memory2.transform import FnTransformer, Transformer
-from dimos.memory2.type import (
+from dimos.memory2.filter import (
     AfterFilter,
     AtFilter,
     BeforeFilter,
     Filter,
     NearFilter,
-    Observation,
     PredicateFilter,
     StreamQuery,
     TagsFilter,
     TimeRangeFilter,
 )
+from dimos.memory2.transform import FnTransformer, Transformer
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator
 
     from reactivex.abc import DisposableBase
+
+    from dimos.memory2.type import Observation
 
 T = TypeVar("T")
 R = TypeVar("R")

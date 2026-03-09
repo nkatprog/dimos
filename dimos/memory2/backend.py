@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_check
 
 from reactivex.disposable import Disposable
 
-from dimos.memory2.type import Observation, StreamQuery
+from dimos.memory2.type import Observation
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from reactivex.abc import DisposableBase
 
     from dimos.memory2.buffer import BackpressureBuffer
+    from dimos.memory2.filter import StreamQuery
 
 T = TypeVar("T")
 
