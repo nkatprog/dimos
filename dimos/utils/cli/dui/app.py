@@ -100,7 +100,6 @@ class DUIApp(App[None]):
                 yield Container(id=f"display-{p + 1}", classes="display-pane")
         if self._debug:
             yield RichLog(id="debug-log", markup=True, wrap=True, highlight=False)
-        yield Static("", id="hint-bar")
 
     # ------------------------------------------------------------------
     # Lifecycle
