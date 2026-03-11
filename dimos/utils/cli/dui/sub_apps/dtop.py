@@ -72,17 +72,29 @@ class DtopSubApp(SubApp):
         self._latest: dict[str, Any] | None = None
         self._last_msg_time: float = 0.0
         self._cpu_history: dict[str, deque[float]] = {}
+        self._reconnecting = False
+
+    def _debug(self, msg: str) -> None:
+        try:
+            self.app._log(f"[#8899aa]DTOP:[/#8899aa] {msg}")  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+    # How long without a message before we consider the connection stale
+    _STALE_TIMEOUT = 5.0
+    # How long without a message before we attempt to reconnect LCM
+    _RECONNECT_TIMEOUT = 15.0
 
     def _waiting_panel(self) -> Panel:
-        return Panel(
-            Text(
-                "Waiting for resource stats...\nuse `dimos --dtop ...` to emit stats",
-                style=theme.FOREGROUND,
-                justify="center",
-            ),
-            border_style=theme.CYAN,
-            expand=False,
-        )
+        msg = Text(justify="center")
+        msg.append("Waiting for resource stats...\n\n", style=theme.FOREGROUND)
+        msg.append("Blueprint must be launched with ", style=theme.DIM)
+        msg.append("--dtop", style=f"bold {theme.CYAN}")
+        msg.append(" to emit stats.\n", style=theme.DIM)
+        msg.append("Enable it in the ", style=theme.DIM)
+        msg.append("config", style=f"bold {theme.CYAN}")
+        msg.append(" tab before launching.", style=theme.DIM)
+        return Panel(msg, border_style=theme.CYAN, expand=False)
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="dtop-scroll", classes="waiting"):
@@ -101,20 +113,53 @@ class DtopSubApp(SubApp):
 
     def on_resume_subapp(self) -> None:
         self._start_refresh_timer()
+        # Reinitialize LCM if it was lost (e.g. after unmount/remount)
+        if self._lcm is None:
+            self.run_worker(self._init_lcm, exclusive=True, thread=True)
 
     def _start_refresh_timer(self) -> None:
         self.set_interval(0.5, self._refresh)
 
     def _init_lcm(self) -> None:
         """Blocking LCM init — runs in a worker thread."""
+        self._debug("_init_lcm: starting...")
+
+        # Stop any existing LCM instance first
+        if self._lcm is not None:
+            self._debug("_init_lcm: stopping existing LCM instance")
+            try:
+                self._lcm.stop()
+            except Exception as e:
+                self._debug(f"_init_lcm: stop failed: {e}")
+            self._lcm = None
+
         try:
             from dimos.protocol.pubsub.impl.lcmpubsub import PickleLCM, Topic
 
-            self._lcm = PickleLCM(autoconf=True)
-            self._lcm.subscribe(Topic("/dimos/resource_stats"), self._on_msg)
-            self._lcm.start()
-        except Exception:
-            pass
+            self._debug("_init_lcm: creating PickleLCM...")
+            plcm = PickleLCM()
+            self._debug(
+                f"_init_lcm: PickleLCM created, l={plcm.l is not None}, "
+                f"url={plcm.config.url}"
+            )
+
+            self._debug("_init_lcm: subscribing to /dimos/resource_stats...")
+            plcm.subscribe(Topic("/dimos/resource_stats"), self._on_msg)
+
+            self._debug("_init_lcm: calling start()...")
+            plcm.start()
+            self._debug(
+                f"_init_lcm: started, thread={plcm._thread is not None}, "
+                f"thread.alive={plcm._thread.is_alive() if plcm._thread else 'N/A'}"
+            )
+
+            self._lcm = plcm
+            self._debug("_init_lcm: DONE — listening for messages")
+        except Exception as e:
+            import traceback
+
+            self._debug(f"_init_lcm FAILED: {e}\n{traceback.format_exc()}")
+            self._lcm = None
 
     def on_unmount_subapp(self) -> None:
         if self._lcm:
@@ -124,10 +169,25 @@ class DtopSubApp(SubApp):
                 pass
             self._lcm = None
 
+    def _reconnect_lcm(self) -> None:
+        """Tear down and re-create the LCM subscription."""
+        try:
+            self._init_lcm()
+            self._debug("LCM reconnected")
+        except Exception as e:
+            self._debug(f"reconnect failed: {e}")
+        finally:
+            self._reconnecting = False
+
     def _on_msg(self, msg: dict[str, Any], _topic: str) -> None:
+        first = False
         with self._lock:
+            if self._latest is None:
+                first = True
             self._latest = msg
             self._last_msg_time = time.monotonic()
+        if first:
+            self._debug(f"_on_msg: FIRST message received! keys={list(msg.keys())}")
 
     def _refresh(self) -> None:
         with self._lock:
@@ -138,13 +198,22 @@ class DtopSubApp(SubApp):
             scroll = self.query_one(VerticalScroll)
         except Exception:
             return
+
+        now = time.monotonic()
+
         if data is None:
             scroll.add_class("waiting")
             self.query_one("#dtop-panels", Static).update(self._waiting_panel())
             return
         scroll.remove_class("waiting")
 
-        stale = (time.monotonic() - last_msg) > 2.0
+        stale = (now - last_msg) > self._STALE_TIMEOUT
+
+        # Auto-reconnect if we haven't received data in a while
+        if (now - last_msg) > self._RECONNECT_TIMEOUT and not self._reconnecting:
+            self._reconnecting = True
+            self._debug(f"No data for {now - last_msg:.0f}s, reconnecting LCM...")
+            self.run_worker(self._reconnect_lcm, exclusive=True, thread=True)
         dim = "#606060"
         border_style = dim if stale else "#777777"
 

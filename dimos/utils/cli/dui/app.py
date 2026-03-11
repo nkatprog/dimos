@@ -179,15 +179,6 @@ class DUIApp(App[None]):
             node = node.parent
         return None
 
-    def _sync_focused_panel(self) -> None:
-        """Update _focused_panel to match where the actually-focused widget lives."""
-        panel = self._panel_for_widget(self.focused)
-        if panel is not None and panel != self._focused_panel:
-            old = self._focused_panel
-            self._focused_panel = panel
-            self._sync_tabs()
-            self._log(f"[dim]FOCUS-TRACK: panel {old}->{panel}[/dim]")
-
     # ------------------------------------------------------------------
     # Click-to-focus panel
     # ------------------------------------------------------------------
@@ -298,7 +289,6 @@ class DUIApp(App[None]):
     # ------------------------------------------------------------------
 
     async def action_tab_prev(self) -> None:
-        self._sync_focused_panel()
         self._log(
             f"[#ffcc00]ACTION[/#ffcc00] tab_prev  panel={self._focused_panel} idx={self._panel_idx[: self._num_panels]}"
         )
@@ -306,7 +296,6 @@ class DUIApp(App[None]):
         await self._move_tab(-1)
 
     async def action_tab_next(self) -> None:
-        self._sync_focused_panel()
         self._log(
             f"[#ffcc00]ACTION[/#ffcc00] tab_next  panel={self._focused_panel} idx={self._panel_idx[: self._num_panels]}"
         )
@@ -314,14 +303,12 @@ class DUIApp(App[None]):
         await self._move_tab(1)
 
     def action_focus_prev_panel(self) -> None:
-        self._sync_focused_panel()
         self._log(f"[#ffcc00]ACTION[/#ffcc00] focus_prev_panel  (was panel={self._focused_panel})")
         self._clear_quit_pending()
         new = max(0, self._focused_panel - 1)
         self._focus_panel(new)
 
     def action_focus_next_panel(self) -> None:
-        self._sync_focused_panel()
         self._log(f"[#ffcc00]ACTION[/#ffcc00] focus_next_panel  (was panel={self._focused_panel})")
         self._clear_quit_pending()
         new = min(self._num_panels - 1, self._focused_panel + 1)

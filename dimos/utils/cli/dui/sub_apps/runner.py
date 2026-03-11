@@ -151,6 +151,9 @@ class StatusSubApp(SubApp):
         self._following_launch_log = False
         self._launch_log_mtime: float = 0.0
         self._poll_count = 0
+        self._last_click_time: float = 0.0
+        self._last_click_y: int = -1
+        self._saved_status: str = ""
 
     def _debug(self, msg: str) -> None:
         """Log to the DUI debug panel if available."""
@@ -288,7 +291,7 @@ class StatusSubApp(SubApp):
         self.query_one("#runner-log").styles.display = "block"
         self.query_one("#run-controls").styles.display = "none"
         status = self.query_one("#runner-status", Static)
-        status.update("Launching blueprint...")
+        status.update("Launching blueprint... — double-click log to open")
 
         self._stop_log = False
         log_widget = self.query_one("#runner-log", RichLog)
@@ -301,14 +304,12 @@ class StatusSubApp(SubApp):
                         line = f.readline()
                         if line:
                             rendered = Text.from_ansi(line.rstrip("\n"))
-                            self.app.call_from_thread(log_widget.write, rendered)
+                            self.app.call_from_thread(self._write_log_line, log_widget, rendered)
                         else:
                             time.sleep(0.2)
-                            # Check if the launch process finished (file stopped growing)
-                            # and a daemon entry appeared — poll handles the transition
             except Exception as e:
                 self.app.call_from_thread(
-                    log_widget.write, f"[red]Error reading launch log: {e}[/red]"
+                    self._write_log_line, log_widget, f"[red]Error reading launch log: {e}[/red]"
                 )
 
         self._log_thread = threading.Thread(target=_tail, daemon=True)
@@ -387,7 +388,7 @@ class StatusSubApp(SubApp):
     def _format_status_line(entry: Any) -> str:
         """One-line status bar summary including config overrides."""
         overrides = getattr(entry, "config_overrides", None) or {}
-        parts = [f"Running: {entry.blueprint} (PID {entry.pid})"]
+        parts = [f"Running: {entry.blueprint} (PID {entry.pid}) — double-click log to open"]
         if overrides:
             flags = " ".join(
                 f"--{k.replace('_', '-')}"
@@ -444,14 +445,14 @@ class StatusSubApp(SubApp):
         ts = str(rec.get("timestamp", ""))
         hms = ts[11:19] if len(ts) >= 19 else ts
         level = str(rec.get("level", "?"))[:3].lower()
-        logger = P(str(rec.get("logger", "?"))).name
+        logger_name = P(str(rec.get("logger", "?"))).name
         event = str(rec.get("event", ""))
 
         line = Text()
         line.append(hms, style="dim")
         lvl_style = StatusSubApp._LEVEL_STYLES.get(level, "")
         line.append(f"[{level}]", style=lvl_style)
-        line.append(f"[{logger:17}] ", style="dim")
+        line.append(f"[{logger_name:17}] ", style="dim")
         line.append(event, style="blue")
 
         extras = {k: v for k, v in rec.items() if k not in _STANDARD_KEYS}
@@ -465,13 +466,17 @@ class StatusSubApp(SubApp):
 
         return line
 
+    def _write_log_line(self, log_widget: RichLog, rendered: Text | str) -> None:
+        """Write a line to the log widget."""
+        log_widget.write(rendered)
+
     def _start_log_follow(self, entry: Any) -> None:
         self._stop_log = False
         log_widget = self.query_one("#runner-log", RichLog)
         log_widget.clear()
         # Print launch info header
         for line in self._format_launch_header(entry):
-            log_widget.write(line)
+            self._write_log_line(log_widget, line)
 
         def _follow() -> None:
             try:
@@ -483,20 +488,24 @@ class StatusSubApp(SubApp):
 
                 path = resolve_log_path(entry.run_id)
                 if not path:
-                    self.app.call_from_thread(log_widget.write, "[dim]No log file found[/dim]")
+                    self.app.call_from_thread(
+                        self._write_log_line, log_widget, "[dim]No log file found[/dim]"
+                    )
                     return
 
                 for line in read_log(path, 50):
                     if self._stop_log:
                         return
                     rendered = self._format_jsonl_line(line)
-                    self.app.call_from_thread(log_widget.write, rendered)
+                    self.app.call_from_thread(self._write_log_line, log_widget, rendered)
 
                 for line in follow_log(path, stop=lambda: self._stop_log):
                     rendered = self._format_jsonl_line(line)
-                    self.app.call_from_thread(log_widget.write, rendered)
+                    self.app.call_from_thread(self._write_log_line, log_widget, rendered)
             except Exception as e:
-                self.app.call_from_thread(log_widget.write, f"[red]Error: {e}[/red]")
+                self.app.call_from_thread(
+                    self._write_log_line, log_widget, f"[red]Error: {e}[/red]"
+                )
 
         self._log_thread = threading.Thread(target=_follow, daemon=True)
         self._log_thread.start()
@@ -504,6 +513,129 @@ class StatusSubApp(SubApp):
     # ------------------------------------------------------------------
     # Button handling
     # ------------------------------------------------------------------
+
+    def _is_click_on_log(self, event: Any) -> bool:
+        """Return True if the click event is inside the runner-log RichLog."""
+        try:
+            node = event.widget
+            while node is not None:
+                if getattr(node, "id", None) == "runner-log":
+                    return True
+                node = node.parent
+        except Exception:
+            pass
+        return False
+
+    def on_click(self, event: Any) -> None:
+        """Single click: show hint. Double click: open source file."""
+        if not self._is_click_on_log(event):
+            return
+
+        now = time.monotonic()
+        click_y = getattr(event, "screen_y", -1)
+        is_double = (now - self._last_click_time) < 0.4 and abs(click_y - self._last_click_y) <= 1
+        self._last_click_time = now
+        self._last_click_y = click_y
+
+        if is_double:
+            self._handle_double_click(event)
+        else:
+            # Save current status and show hint
+            status = self.query_one("#runner-status", Static)
+            current = status.renderable
+            if not isinstance(current, str) or "double-click" not in current:
+                self._saved_status = str(current)
+            status.update("double-click to open log file")
+            # Restore after 2 seconds
+            self.set_timer(2.0, self._restore_status)
+
+    def _restore_status(self) -> None:
+        """Restore the status bar after the hint."""
+        try:
+            status = self.query_one("#runner-status", Static)
+            current = str(status.renderable)
+            if "double-click" in current and self._saved_status:
+                status.update(self._saved_status)
+        except Exception:
+            pass
+
+    def _handle_double_click(self, event: Any) -> None:
+        """Open launch.log in the user's editor."""
+        log_path = _launch_log_path()
+        if log_path.exists():
+            self._open_source_file(str(log_path), 0)
+        else:
+            self.app.notify("No launch log found", severity="warning")
+
+    def _open_source_file(self, file_path: str, lineno: int) -> None:
+        """Open a source file in the user's preferred GUI editor.
+
+        Only launches background (GUI) editors — never suspends the TUI.
+        Falls back to copying the path to clipboard + notification.
+        """
+        import shutil
+
+        # Resolve relative paths against the project root
+        full_path = Path(file_path)
+        if not full_path.is_absolute():
+            for base in [Path.cwd(), Path(__file__).resolve().parents[5]]:
+                candidate = base / file_path
+                if candidate.exists():
+                    full_path = candidate
+                    break
+
+        loc = f"{full_path}:{lineno}" if lineno else str(full_path)
+        loc_short = f"{full_path.name}:{lineno}" if lineno else full_path.name
+
+        if not full_path.exists():
+            self.app.copy_to_clipboard(loc)
+            self.app.notify(f"File not found, copied path: {loc}", severity="warning")
+            return
+
+        # GUI editors that can be launched as background processes
+        _GUI_EDITORS: list[tuple[str, list[str]]] = []
+
+        # Check $VISUAL and $EDITOR for GUI editors
+        for env_var in ("VISUAL", "EDITOR"):
+            cmd = os.environ.get(env_var, "")
+            if not cmd or not shutil.which(cmd):
+                continue
+            cmd_name = Path(cmd).name
+            if cmd_name in ("code", "code-insiders"):
+                _GUI_EDITORS.append((cmd, ["-g", loc]))
+            elif cmd_name in ("subl", "sublime", "subl3"):
+                _GUI_EDITORS.append((cmd, [loc]))
+            elif cmd_name in ("atom", "zed", "fleet"):
+                _GUI_EDITORS.append((cmd, [loc]))
+            elif cmd_name in ("idea", "pycharm", "goland", "webstorm", "clion"):
+                _GUI_EDITORS.append((cmd, ["--line", str(lineno), str(full_path)]))
+
+        # Fallback: try well-known GUI editors
+        for cmd, args in [
+            ("code", ["-g", loc]),
+            ("subl", [loc]),
+            ("zed", [loc]),
+        ]:
+            if shutil.which(cmd):
+                _GUI_EDITORS.append((cmd, args))
+
+        for cmd, args in _GUI_EDITORS:
+            try:
+                subprocess.Popen(
+                    [cmd, *args],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                self.app.notify(f"Opened {loc_short}")
+                return
+            except Exception:
+                continue
+
+        # No GUI editor found — copy path to clipboard as fallback
+        self.app.copy_to_clipboard(loc)
+        self.app.notify(f"Copied to clipboard: {loc}")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-stop":
@@ -787,6 +919,7 @@ class StatusSubApp(SubApp):
         threading.Thread(target=_do_kill, daemon=True).start()
 
     def _open_log_in_editor(self) -> None:
+        """Open the log file in the user's editor (non-blocking)."""
         try:
             from dimos.core.log_viewer import resolve_log_path
 
@@ -797,14 +930,10 @@ class StatusSubApp(SubApp):
                 path = resolve_log_path()  # most recent
 
             if not path:
-                log_widget = self.query_one("#runner-log", RichLog)
-                log_widget.write("[dim]No log file found[/dim]")
+                self.app.notify("No log file found", severity="warning")
                 return
 
-            editor = os.environ.get("EDITOR", "vi")
-            self.app.suspend()
-            os.system(f"{editor} {path}")
-            self.app.resume()
+            self._open_source_file(str(path), 0)
         except Exception:
             pass
 
