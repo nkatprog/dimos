@@ -29,13 +29,12 @@ from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from dimos.utils.cli import theme
+from dimos.utils.cli.dio.sub_app import SubApp
 from dimos.utils.cli.dtop import (
-    _LABEL_COLOR,
     _SPARK_WIDTH,
     ResourceSpyApp,
     _compute_ranges,
 )
-from dimos.utils.cli.dio.sub_app import SubApp
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -188,10 +187,13 @@ class DtopSubApp(SubApp):
             # Also try publishing on the real topic to see if our main
             # subscription picks it up
             self._debug("_init_lcm: testing subscription on /dimos/resource_stats...")
-            plcm.publish("/dimos/resource_stats", {
-                "coordinator": {"pid": 0, "cpu_percent": 0, "alive": True},
-                "workers": [],
-            })
+            plcm.publish(
+                "/dimos/resource_stats",
+                {
+                    "coordinator": {"pid": 0, "cpu_percent": 0, "alive": True},
+                    "workers": [],
+                },
+            )
             _time.sleep(0.3)
             if self._latest is not None:
                 self._debug("_init_lcm: real-topic self-test PASSED")
@@ -302,9 +304,9 @@ class DtopSubApp(SubApp):
                 self._cpu_history[role].append(d.get("cpu_percent", 0))
             if i > 0:
                 title = Text(" ")
-                title.append(role, style=dim if stale else _LABEL_COLOR)
+                title.append(role, style=dim if stale else theme.LABEL_COLOR)
                 if mods:
-                    title.append(": ", style=dim if stale else _LABEL_COLOR)
+                    title.append(": ", style=dim if stale else theme.LABEL_COLOR)
                     title.append(mods, style=dim if stale else rs)
                 if pid:
                     title.append(f" [{pid}]", style=dim if stale else theme.PID_COLOR)
@@ -314,9 +316,9 @@ class DtopSubApp(SubApp):
 
         first_role, first_rs, _, first_mods, first_pid = entries[0]
         panel_title = Text(" ")
-        panel_title.append(first_role, style=dim if stale else _LABEL_COLOR)
+        panel_title.append(first_role, style=dim if stale else theme.LABEL_COLOR)
         if first_mods:
-            panel_title.append(": ", style=dim if stale else _LABEL_COLOR)
+            panel_title.append(": ", style=dim if stale else theme.LABEL_COLOR)
             panel_title.append(first_mods, style=dim if stale else first_rs)
         if first_pid:
             panel_title.append(f" [{first_pid}]", style=dim if stale else theme.PID_COLOR)

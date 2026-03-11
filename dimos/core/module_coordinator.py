@@ -90,7 +90,7 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
             self._client.suppress_console()
 
     def start(self) -> None:
-        n = self._n if self._n is not None else 2
+        n: int = self._n if self._n is not None else 2  # type: ignore[assignment]
         self._client = WorkerManager(n_workers=n)
         self._client.start()
 
@@ -134,6 +134,10 @@ class ModuleCoordinator(Resource):  # type: ignore[misc]
     ) -> list[ModuleProxy]:
         if not self._client:
             raise ValueError("Not started")
+
+        # Grow the worker pool if there are more modules than workers
+        if isinstance(self._client, WorkerManager):
+            self._client.ensure_capacity(len(module_specs))
 
         modules = self._client.deploy_parallel(module_specs)
         for (module_class, _, _), module in zip(module_specs, modules, strict=True):
