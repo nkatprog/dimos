@@ -30,10 +30,9 @@ Usage::
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
-
-from pydantic.experimental.pipeline import validate_as
+from typing import TYPE_CHECKING
 
 from dimos.core.native_module import NativeModule, NativeModuleConfig
 from dimos.core.stream import In, Out
@@ -41,15 +40,15 @@ from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.msgs.sensor_msgs.Image import Image
 from dimos.spec import perception
 
-_CONFIG_DIR = Path(__file__).parent / "config"
+_CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "dimos" / "orbslam3"
 
 
 class OrbSlam3Config(NativeModuleConfig):
     """Config for the ORB-SLAM3 visual SLAM native module."""
 
-    cwd: str | None = "cpp"
+    cwd: str | None = None
     executable: str = "result/bin/orbslam3_native"
-    build_command: str | None = "nix build .#orbslam3_native"
+    build_command: str | None = "nix build github:dimensionalOS/dimos-orb-slam3"
 
     # ORB-SLAM3 sensor mode
     sensor_mode: str = "MONOCULAR"  # MONOCULAR, STEREO, RGBD, IMU_MONOCULAR, IMU_STEREO, IMU_RGBD
@@ -61,10 +60,9 @@ class OrbSlam3Config(NativeModuleConfig):
     frame_id: str = "map"
     child_frame_id: str = "camera"
 
-    # Camera settings YAML (relative to config/ dir, or absolute path)
-    settings: Annotated[
-        Path, validate_as(...).transform(lambda p: p if p.is_absolute() else _CONFIG_DIR / p)
-    ] = Path("RealSense_D435i.yaml.opencv")
+    # Camera settings YAML (relative name resolves against nix package's bundled configs,
+    # or pass an absolute path for custom configs)
+    settings: Path = Path("RealSense_D435i.yaml.opencv")
 
     # Resolved from settings, passed as --settings_path to the binary
     settings_path: str | None = None
@@ -76,12 +74,16 @@ class OrbSlam3Config(NativeModuleConfig):
     cli_exclude: frozenset[str] = frozenset({"settings"})
 
     def model_post_init(self, __context: object) -> None:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        if self.cwd is None:
+            self.cwd = str(_CACHE_DIR)
         super().model_post_init(__context)
-        # Resolve relative settings path against config/ dir
-        if not self.settings.is_absolute():
-            self.settings = _CONFIG_DIR / self.settings
         if self.settings_path is None:
-            self.settings_path = str(self.settings)
+            if self.settings.is_absolute():
+                self.settings_path = str(self.settings)
+            else:
+                nix_config = _CACHE_DIR / "result" / "share" / "orbslam3" / "config"
+                self.settings_path = str(nix_config / self.settings)
 
 
 class OrbSlam3(NativeModule[OrbSlam3Config], perception.Odometry):
