@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 logger = setup_logger()
 
+
 class RetryOnFailure(py_trees.decorators.Decorator):
     """Retry the child subtree on FAILURE, up to *max_attempts*.
 
@@ -57,7 +58,9 @@ class RetryOnFailure(py_trees.decorators.Decorator):
         )
 
         if self._attempt >= self.max_attempts:
-            logger.warning(f"[RetryOnFailure:{self.name}] All {self.max_attempts} attempts exhausted")
+            logger.warning(
+                f"[RetryOnFailure:{self.name}] All {self.max_attempts} attempts exhausted"
+            )
             return Status.FAILURE
 
         self.decorated.stop(Status.INVALID)
@@ -66,6 +69,7 @@ class RetryOnFailure(py_trees.decorators.Decorator):
     def terminate(self, new_status: Status) -> None:
         if new_status == Status.INVALID and self.decorated.status == Status.RUNNING:
             self.decorated.stop(Status.INVALID)
+
 
 def build_pick_tree(
     module: PickPlaceModule,
@@ -178,18 +182,23 @@ def build_pick_tree(
             actions.SetHasObject("ResetHasObject", module, value=False),
             actions.SelectNextGrasp("SelectNextGrasp", module),
             actions.ComputePreGrasp("ComputePreGrasp", module),
-            actions.SetGripper("OpenGripper", module, position=cfg.gripper_open_position, settle_time=0.5),
+            actions.SetGripper(
+                "OpenGripper", module, position=cfg.gripper_open_position, settle_time=0.5
+            ),
             actions.PlanToPose("PlanToPreGrasp", module, pose_key="pre_grasp_pose"),
             actions.ExecuteTrajectory("ExecuteApproach", module),
             conditions.VerifyReachedPose("VerifyPreGrasp", module, pose_key="pre_grasp_pose"),
             actions.PlanToPose("PlanToGrasp", module, pose_key="current_grasp"),
             actions.ExecuteTrajectory("ExecuteGrasp", module),
             conditions.VerifyReachedPose(
-                "VerifyGraspPose", module, pose_key="current_grasp",
+                "VerifyGraspPose",
+                module,
+                pose_key="current_grasp",
                 pos_tol=cfg.grasp_position_tolerance,
             ),
             actions.SetGripper(
-                "CloseGripper", module,
+                "CloseGripper",
+                module,
                 position=cfg.gripper_close_position,
                 settle_time=cfg.gripper_settle_time,
             ),
@@ -208,7 +217,9 @@ def build_pick_tree(
         memory=False,
         children=[
             conditions.HasObject("HasObject?", module),
-            actions.SetGripper("OpenGripperRecovery", module, position=cfg.gripper_open_position, settle_time=0.5),
+            actions.SetGripper(
+                "OpenGripperRecovery", module, position=cfg.gripper_open_position, settle_time=0.5
+            ),
         ],
     )
 
@@ -217,7 +228,9 @@ def build_pick_tree(
         memory=False,
         children=[
             conditions.HasObject("HasObject?2", module),
-            actions.SetGripper("OpenGripperRecovery2", module, position=cfg.gripper_open_position, settle_time=0.5),
+            actions.SetGripper(
+                "OpenGripperRecovery2", module, position=cfg.gripper_open_position, settle_time=0.5
+            ),
         ],
     )
 
@@ -251,7 +264,8 @@ def build_pick_tree(
             actions.ResetRobot("ResetAfterFailure", module),
             actions.ExhaustRetriesIfHolding("ExhaustRetriesIfHolding", module),
             py_trees.composites.Selector(
-                "Recovery", memory=True,
+                "Recovery",
+                memory=True,
                 children=[try_local_retreat, go_home_retreat],
             ),
             py_trees.behaviours.Failure("RecoveryComplete"),
@@ -279,8 +293,10 @@ def build_pick_tree(
             actions.CancelMotion("CancelBeforeHome", module, settle_time=0.3),
             actions.ResetRobot("ResetBeforeHome", module),
             actions.SetGripper(
-                "OpenGripperBeforeHome", module,
-                position=cfg.gripper_open_position, settle_time=0.5,
+                "OpenGripperBeforeHome",
+                module,
+                position=cfg.gripper_open_position,
+                settle_time=0.5,
             ),
             actions.PlanToJoints("PlanToHomeForRescan", module, joints_key="home_joints"),
             actions.ExecuteTrajectory("ExecuteHomeForRescan", module),
@@ -317,7 +333,8 @@ def build_pick_tree(
             pick_with_rescan,
             actions.StorePickPosition("StorePickPosition", module),
             actions.SetResultMessage(
-                "SetResult", module,
+                "SetResult",
+                module,
                 message=f"Pick complete — grasped '{object_name}' successfully",
             ),
         ],
@@ -332,6 +349,7 @@ def build_pick_tree(
     bb.home_joints = home_joints_override if home_joints_override is not None else cfg.home_joints
 
     return root
+
 
 def build_place_tree(
     module: PickPlaceModule,
@@ -363,17 +381,21 @@ def build_place_tree(
             actions.PlanToPose("PlanToPlace", module, pose_key="place_pose"),
             actions.ExecuteTrajectory("ExecutePlace", module),
             actions.SetGripper(
-                "OpenGripper", module,
-                position=cfg.gripper_open_position, settle_time=0.5,
+                "OpenGripper",
+                module,
+                position=cfg.gripper_open_position,
+                settle_time=0.5,
             ),
             actions.PlanToPose("PlanRetract", module, pose_key="pre_place_pose"),
             actions.ExecuteTrajectory("ExecuteRetract", module),
             actions.SetResultMessage(
-                "SetResult", module,
+                "SetResult",
+                module,
                 message=f"Place complete — object released at ({x:.3f}, {y:.3f}, {z:.3f})",
             ),
         ],
     )
+
 
 def build_go_home_tree(
     module: PickPlaceModule,
@@ -406,8 +428,10 @@ def build_go_home_tree(
                 children=[
                     conditions.HasObject("HasObject?", module),
                     actions.SetGripper(
-                        "OpenGripper", module,
-                        position=cfg.gripper_open_position, settle_time=0.5,
+                        "OpenGripper",
+                        module,
+                        position=cfg.gripper_open_position,
+                        settle_time=0.5,
                     ),
                 ],
             ),
@@ -427,7 +451,9 @@ def build_go_home_tree(
                             "LiftBeforeHome",
                             memory=True,
                             children=[
-                                actions.ComputeLiftPose("ComputeSafeLift", module, lift_height=cfg.lift_height),
+                                actions.ComputeLiftPose(
+                                    "ComputeSafeLift", module, lift_height=cfg.lift_height
+                                ),
                                 actions.PlanToPose("PlanSafeLift", module, pose_key="lift_pose"),
                                 actions.ExecuteTrajectory("ExecuteSafeLift", module),
                             ],

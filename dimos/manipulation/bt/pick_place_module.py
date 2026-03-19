@@ -17,13 +17,13 @@
 from __future__ import annotations
 
 import atexit
-from pydantic import Field
 import subprocess
 import threading
 import time
 from typing import TYPE_CHECKING, Any
 
 import py_trees
+from pydantic import Field
 
 from dimos.agents.annotation import skill
 from dimos.core.module import Module, ModuleConfig
@@ -36,12 +36,15 @@ if TYPE_CHECKING:
 
 logger = setup_logger()
 
+
 def _cleanup_graspgen_containers() -> None:
     """Stop all running GraspGen Docker containers at exit."""
     try:
         result = subprocess.run(
             ["docker", "ps", "-q", "--filter", "name=dimos_graspgenmodule"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         container_ids = [cid for cid in result.stdout.strip().split("\n") if cid]
         if container_ids:
@@ -50,7 +53,9 @@ def _cleanup_graspgen_containers() -> None:
     except Exception:
         pass
 
+
 atexit.register(_cleanup_graspgen_containers)
+
 
 class PickPlaceModuleConfig(ModuleConfig):
     """Configuration for BT-based PickPlaceModule."""
@@ -93,6 +98,7 @@ class PickPlaceModuleConfig(ModuleConfig):
 
     # Home joint configuration — resolved at runtime via get_init_joints RPC if empty
     home_joints: list[float] = Field(default_factory=list)
+
 
 class PickPlaceModule(Module):
     """BT-orchestrated pick-and-place module.
@@ -209,7 +215,9 @@ class PickPlaceModule(Module):
             pass
         if open_gripper:
             try:
-                self.get_rpc_calls("BTManipulationModule.set_gripper")(self.config.gripper_open_position)
+                self.get_rpc_calls("BTManipulationModule.set_gripper")(
+                    self.config.gripper_open_position
+                )
             except Exception:
                 pass
 
@@ -228,11 +236,21 @@ class PickPlaceModule(Module):
         # Reset blackboard to prevent stale data from a previous run
         bb = py_trees.blackboard.Client(name="TreeReset")
         for key, default in {
-            "detections": [], "target_object": None, "object_pointcloud": None,
-            "scene_pointcloud": None, "grasp_candidates": [], "grasp_index": 0,
-            "current_grasp": None, "pre_grasp_pose": None, "place_pose": None,
-            "pre_place_pose": None, "lift_pose": None, "retreat_pose": None,
-            "has_object": False, "error_message": "", "result_message": "",
+            "detections": [],
+            "target_object": None,
+            "object_pointcloud": None,
+            "scene_pointcloud": None,
+            "grasp_candidates": [],
+            "grasp_index": 0,
+            "current_grasp": None,
+            "pre_grasp_pose": None,
+            "place_pose": None,
+            "pre_place_pose": None,
+            "lift_pose": None,
+            "retreat_pose": None,
+            "has_object": False,
+            "error_message": "",
+            "result_message": "",
         }.items():
             bb.register_key(key=key, access=py_trees.common.Access.WRITE)
             setattr(bb, key, default)
@@ -266,7 +284,10 @@ class PickPlaceModule(Module):
             time.sleep(period)
 
     def _exec_pick(
-        self, object_name: str, object_id: str | None = None, max_attempts: int | None = None,
+        self,
+        object_name: str,
+        object_id: str | None = None,
+        max_attempts: int | None = None,
     ) -> str:
         """Synchronous pick implementation (runs in background thread)."""
         attempts = max_attempts or self.config.max_pick_attempts
@@ -277,14 +298,20 @@ class PickPlaceModule(Module):
         )
 
         root = build_pick_tree(
-            module=self, object_name=object_name, object_id=object_id,
-            max_attempts=attempts, home_joints_override=self._resolve_home_joints(),
+            module=self,
+            object_name=object_name,
+            object_id=object_id,
+            max_attempts=attempts,
+            home_joints_override=self._resolve_home_joints(),
         )
         return self._tick_tree(root)
 
     @skill
     def pick(
-        self, object_name: str, object_id: str | None = None, max_attempts: int | None = None,
+        self,
+        object_name: str,
+        object_id: str | None = None,
+        max_attempts: int | None = None,
     ) -> str | None:
         """Pick up an object using BT-orchestrated grasp with DL-based grasp generation.
 
@@ -322,14 +349,20 @@ class PickPlaceModule(Module):
 
     @skill
     def pick_and_place(
-        self, object_name: str, place_x: float, place_y: float, place_z: float,
-        object_id: str | None = None, max_attempts: int | None = None,
+        self,
+        object_name: str,
+        place_x: float,
+        place_y: float,
+        place_z: float,
+        object_id: str | None = None,
+        max_attempts: int | None = None,
     ) -> str | None:
         """Pick an object and place it at the target location.
 
         Sequentially runs pick then place in the background.
         Type ``stop`` to cancel at any time.
         """
+
         def _run() -> str:
             pick_result = self._exec_pick(object_name, object_id, max_attempts)
             if self._stop_event.is_set() or pick_result.startswith("Error"):
@@ -345,6 +378,7 @@ class PickPlaceModule(Module):
         Does NOT open the gripper if holding — only opens when nothing is held.
         Use for "go back", "come home", "return", etc. Runs asynchronously.
         """
+
         def _run() -> str:
             logger.info("[PickPlaceModule] go_home()")
             root = build_go_home_tree(module=self, home_joints_override=self._resolve_home_joints())
@@ -366,26 +400,21 @@ class PickPlaceModule(Module):
             return "No prompts provided."
 
         try:
-            self.get_rpc_calls("ObjectSceneRegistrationModule.set_prompts")(
-                text=prompts
-            )
+            self.get_rpc_calls("ObjectSceneRegistrationModule.set_prompts")(text=prompts)
         except Exception as e:
             return f"Error setting prompts: {e}"
 
         import time
+
         time.sleep(self.config.prompt_settle_time)
 
         try:
-            self.get_rpc_calls("BTManipulationModule.refresh_obstacles")(
-                self.config.scan_duration
-            )
+            self.get_rpc_calls("BTManipulationModule.refresh_obstacles")(self.config.scan_duration)
         except Exception as e:
             return f"Error refreshing obstacles: {e}"
 
         try:
-            detections = self.get_rpc_calls(
-                "BTManipulationModule.list_cached_detections"
-            )() or []
+            detections = self.get_rpc_calls("BTManipulationModule.list_cached_detections")() or []
         except Exception as e:
             return f"Error listing detections: {e}"
 
@@ -413,7 +442,9 @@ class PickPlaceModule(Module):
         except Exception:
             pass
         try:
-            self.get_rpc_calls("BTManipulationModule.set_gripper")(self.config.gripper_open_position)
+            self.get_rpc_calls("BTManipulationModule.set_gripper")(
+                self.config.gripper_open_position
+            )
         except Exception:
             pass
         return "Robot stopped — no operation was running"

@@ -23,6 +23,7 @@ from dimos.utils.logging_config import setup_logger
 
 logger = setup_logger()
 
+
 @dataclass(frozen=True)
 class GripperGeometry:
     """Parallel-jaw gripper dimensions."""
@@ -31,11 +32,13 @@ class GripperGeometry:
     tcp_offset: float  # Base-to-TCP distance along approach axis (m)
     grasp_depth_correction: float = 0.0  # Extra approach shift for contact (m)
 
+
 GRIPPER_GEOMETRIES: dict[str, GripperGeometry] = {
     "robotiq_2f_140": GripperGeometry(name="robotiq_2f_140", tcp_offset=0.175),
     "ufactory_xarm": GripperGeometry(name="ufactory_xarm", tcp_offset=0.172),
     "franka_panda": GripperGeometry(name="franka_panda", tcp_offset=0.103),
 }
+
 
 class GripperAdapter:
     """Shifts grasp poses along the approach axis to convert base frame -> TCP frame."""
@@ -57,7 +60,8 @@ class GripperAdapter:
     @staticmethod
     def _shift(pose: Pose, distance: float) -> Pose:
         approach = Transform(
-            translation=pose.position, rotation=pose.orientation,
+            translation=pose.position,
+            rotation=pose.orientation,
         ).to_matrix()[:3, 2]
         offset = approach * distance
         return Pose(

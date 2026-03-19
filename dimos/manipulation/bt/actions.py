@@ -45,6 +45,7 @@ logger = setup_logger()
 
 # --- Base class ---
 
+
 class ManipulationAction(py_trees.behaviour.Behaviour):
     """Base class for all BT action nodes.
 
@@ -60,7 +61,9 @@ class ManipulationAction(py_trees.behaviour.Behaviour):
         self.bb.register_key(key="error_message", access=py_trees.common.Access.WRITE)
         self.bb.register_key(key="result_message", access=py_trees.common.Access.WRITE)
 
+
 # --- Perception actions ---
+
 
 class ScanObjects(ManipulationAction):
     """Set detection prompts, refresh obstacles, and populate blackboard detections."""
@@ -75,18 +78,16 @@ class ScanObjects(ManipulationAction):
         try:
             object_name: str | None = getattr(self.bb, "object_name", None)
             if object_name:
-                self.module.get_rpc_calls(
-                    "ObjectSceneRegistrationModule.set_prompts"
-                )(text=[object_name])
+                self.module.get_rpc_calls("ObjectSceneRegistrationModule.set_prompts")(
+                    text=[object_name]
+                )
                 time.sleep(self.module.config.prompt_settle_time)
 
-            self.module.get_rpc_calls(
-                "BTManipulationModule.refresh_obstacles"
-            )(self.min_duration)
+            self.module.get_rpc_calls("BTManipulationModule.refresh_obstacles")(self.min_duration)
 
-            detections = self.module.get_rpc_calls(
-                "BTManipulationModule.list_cached_detections"
-            )() or []
+            detections = (
+                self.module.get_rpc_calls("BTManipulationModule.list_cached_detections")() or []
+            )
 
             self.bb.detections = detections
             logger.info(f"[ScanObjects] Found {len(detections)} detection(s)")
@@ -95,6 +96,7 @@ class ScanObjects(ManipulationAction):
             logger.error(f"[ScanObjects] Failed: {e}")
             self.bb.error_message = f"Error: Scan failed — {e}"
             return Status.FAILURE
+
 
 class FindObject(ManipulationAction):
     """Find target object in detection list by name or object_id."""
@@ -127,6 +129,7 @@ class FindObject(ManipulationAction):
         logger.warning(f"[FindObject] {msg}")
         self.bb.error_message = msg
         return Status.FAILURE
+
 
 class GetObjectPointcloud(ManipulationAction):
     """Fetch object pointcloud from ObjectSceneRegistrationModule."""
@@ -163,6 +166,7 @@ class GetObjectPointcloud(ManipulationAction):
             self.bb.error_message = f"Error: Pointcloud fetch failed — {e}"
             return Status.FAILURE
 
+
 class GetScenePointcloud(ManipulationAction):
     """Fetch full scene pointcloud for collision filtering."""
 
@@ -185,7 +189,9 @@ class GetScenePointcloud(ManipulationAction):
             self.bb.scene_pointcloud = None
             return Status.SUCCESS  # Non-fatal — grasps work without scene PC
 
+
 # --- Grasp generation actions ---
+
 
 class GenerateGrasps(ManipulationAction):
     """Generate DL-based grasps via GraspGen Docker module.
@@ -213,9 +219,9 @@ class GenerateGrasps(ManipulationAction):
 
         def _run() -> None:
             try:
-                self._result = self.module.get_rpc_calls(
-                    "BTManipulationModule.generate_grasps"
-                )(obj_pc, scene_pc, rpc_timeout=self.rpc_timeout)
+                self._result = self.module.get_rpc_calls("BTManipulationModule.generate_grasps")(
+                    obj_pc, scene_pc, rpc_timeout=self.rpc_timeout
+                )
             except Exception as e:
                 self._error = e
 
@@ -254,6 +260,7 @@ class GenerateGrasps(ManipulationAction):
             self._result = None
             self._error = None
 
+
 class GenerateHeuristicGrasps(ManipulationAction):
     """Fallback: single top-down grasp from the detection center (pitch=pi)."""
 
@@ -277,11 +284,9 @@ class GenerateHeuristicGrasps(ManipulationAction):
         )
         self.bb.grasp_candidates = [grasp_pose]
         self.bb.grasp_index = 0
-        logger.info(
-            f"[GenerateHeuristicGrasps] Top-down grasp at "
-            f"({cx:.3f}, {cy:.3f}, {cz:.3f})"
-        )
+        logger.info(f"[GenerateHeuristicGrasps] Top-down grasp at ({cx:.3f}, {cy:.3f}, {cz:.3f})")
         return Status.SUCCESS
+
 
 class VisualizeGrasps(ManipulationAction):
     """Render grasp candidates in MeshCat (best-effort, always SUCCESS)."""
@@ -299,6 +304,7 @@ class VisualizeGrasps(ManipulationAction):
         except Exception as e:
             logger.warning(f"[VisualizeGrasps] Visualization failed (non-fatal): {e}")
         return Status.SUCCESS
+
 
 class AdaptGrasps(ManipulationAction):
     """Adapt grasps from source gripper frame to target gripper frame. Always SUCCESS."""
@@ -323,6 +329,7 @@ class AdaptGrasps(ManipulationAction):
         adapted = self._adapter.adapt_grasps(candidates)
         self.bb.grasp_candidates = adapted
         return Status.SUCCESS
+
 
 class FilterGraspWorkspace(ManipulationAction):
     """Filter grasps by min-Z, max-distance, and approach angle. Sorts by quality."""
@@ -380,6 +387,7 @@ class FilterGraspWorkspace(ManipulationAction):
         self.bb.grasp_index = 0
         return Status.SUCCESS
 
+
 class SelectNextGrasp(ManipulationAction):
     """Select the next grasp candidate from the ranked list."""
 
@@ -407,6 +415,7 @@ class SelectNextGrasp(ManipulationAction):
         logger.info(f"[SelectNextGrasp] Selected candidate {idx + 1}/{len(candidates)}")
         return Status.SUCCESS
 
+
 class ComputePreGrasp(ManipulationAction):
     """Compute pre-grasp pose offset along approach direction."""
 
@@ -421,7 +430,9 @@ class ComputePreGrasp(ManipulationAction):
         self.bb.pre_grasp_pose = offset_distance(grasp_pose, offset)
         return Status.SUCCESS
 
+
 # --- Motion actions ---
+
 
 class PlanToPose(ManipulationAction):
     """Plan collision-free path to a pose from the blackboard.
@@ -452,6 +463,7 @@ class PlanToPose(ManipulationAction):
             logger.error(f"[PlanToPose] {e}")
             return Status.FAILURE
 
+
 class PlanToJoints(ManipulationAction):
     """Plan collision-free path to joint configuration from the blackboard."""
 
@@ -476,6 +488,7 @@ class PlanToJoints(ManipulationAction):
             self.bb.error_message = f"Error: Joint planning exception — {e}"
             logger.error(f"[PlanToJoints] {e}")
             return Status.FAILURE
+
 
 class ExecuteTrajectory(ManipulationAction):
     """Execute planned trajectory. Returns RUNNING while executing, cancels on interrupt."""
@@ -529,7 +542,9 @@ class ExecuteTrajectory(ManipulationAction):
                     return Status.SUCCESS
                 return Status.RUNNING
             if state_val in (TrajectoryState.ABORTED, TrajectoryState.FAULT):
-                self.bb.error_message = f"Error: Trajectory execution failed (state={TrajectoryState(state_val).name})"
+                self.bb.error_message = (
+                    f"Error: Trajectory execution failed (state={TrajectoryState(state_val).name})"
+                )
                 return Status.FAILURE
 
         if time.time() - self._start_time > self.timeout:
@@ -546,7 +561,9 @@ class ExecuteTrajectory(ManipulationAction):
             except Exception as e:
                 logger.warning(f"[ExecuteTrajectory] Cancel on interrupt failed (best-effort): {e}")
 
+
 # --- Gripper actions ---
+
 
 class SetGripper(ManipulationAction):
     """Set gripper to target position. Returns RUNNING during settle, then SUCCESS."""
@@ -583,7 +600,9 @@ class SetGripper(ManipulationAction):
             return Status.SUCCESS
         return Status.RUNNING
 
+
 # --- Utility actions ---
+
 
 class StorePickPosition(ManipulationAction):
     """Store the current grasp position for place_back()."""
@@ -601,12 +620,11 @@ class StorePickPosition(ManipulationAction):
         )
         return Status.SUCCESS
 
+
 class ComputePlacePose(ManipulationAction):
     """Compute top-down place pose and pre-place offset."""
 
-    def __init__(
-        self, name: str, module: PickPlaceModule, x: float, y: float, z: float
-    ) -> None:
+    def __init__(self, name: str, module: PickPlaceModule, x: float, y: float, z: float) -> None:
         super().__init__(name, module)
         self.x = x
         self.y = y
@@ -622,10 +640,9 @@ class ComputePlacePose(ManipulationAction):
         pre_place_pose = offset_distance(place_pose, self.module.config.pre_grasp_offset)
         self.bb.place_pose = place_pose
         self.bb.pre_place_pose = pre_place_pose
-        logger.info(
-            f"[ComputePlacePose] Place at ({self.x:.3f}, {self.y:.3f}, {self.z:.3f})"
-        )
+        logger.info(f"[ComputePlacePose] Place at ({self.x:.3f}, {self.y:.3f}, {self.z:.3f})")
         return Status.SUCCESS
+
 
 class SetResultMessage(ManipulationAction):
     """Set a result message on the blackboard."""
@@ -638,7 +655,9 @@ class SetResultMessage(ManipulationAction):
         self.bb.result_message = self.message
         return Status.SUCCESS
 
+
 # --- Robot state actions ---
+
 
 class ResetRobot(ManipulationAction):
     """Call BTManipulationModule.reset() to clear fault/abort state."""
@@ -657,12 +676,11 @@ class ResetRobot(ManipulationAction):
             self.bb.error_message = f"Error: Robot reset exception — {e}"
             return Status.FAILURE
 
+
 class CancelMotion(ManipulationAction):
     """Cancel active motion and wait for settle. Always SUCCESS."""
 
-    def __init__(
-        self, name: str, module: PickPlaceModule, settle_time: float = 0.5
-    ) -> None:
+    def __init__(self, name: str, module: PickPlaceModule, settle_time: float = 0.5) -> None:
         super().__init__(name, module)
         self.settle_time = settle_time
         self._start_time: float = 0.0
@@ -685,6 +703,7 @@ class CancelMotion(ManipulationAction):
         if time.time() - self._start_time >= self.settle_time:
             return Status.SUCCESS
         return Status.RUNNING
+
 
 class ClearGraspState(ManipulationAction):
     """Reset all grasp-related blackboard keys for a fresh rescan. Always SUCCESS."""
@@ -713,6 +732,7 @@ class ClearGraspState(ManipulationAction):
         self.bb.has_object = False
         return Status.SUCCESS
 
+
 class SetHasObject(ManipulationAction):
     """Write a fixed value to ``bb.has_object``. Always SUCCESS."""
 
@@ -724,6 +744,7 @@ class SetHasObject(ManipulationAction):
     def update(self) -> Status:
         self.bb.has_object = self.value
         return Status.SUCCESS
+
 
 class ProbeGripperState(ManipulationAction):
     """Query gripper and set ``bb.has_object``. Always SUCCESS."""
@@ -746,6 +767,7 @@ class ProbeGripperState(ManipulationAction):
             self.bb.has_object = False
         return Status.SUCCESS
 
+
 class ExhaustRetriesIfHolding(ManipulationAction):
     """If holding an object, clear grasp candidates to stop further retries. Always SUCCESS."""
 
@@ -761,7 +783,9 @@ class ExhaustRetriesIfHolding(ManipulationAction):
             logger.warning("[ExhaustRetriesIfHolding] Object held — aborting retries")
         return Status.SUCCESS
 
+
 # --- Lift / retreat actions ---
+
 
 class ComputeLiftPose(ManipulationAction):
     """Compute lift pose: current EE + lift_height in Z. Falls back to bb.current_grasp."""
@@ -775,12 +799,16 @@ class ComputeLiftPose(ManipulationAction):
         self.bb.register_key(key="lift_pose", access=py_trees.common.Access.WRITE)
 
     def update(self) -> Status:
-        lift_h = self._lift_height if self._lift_height is not None else self.module.config.lift_height
+        lift_h = (
+            self._lift_height if self._lift_height is not None else self.module.config.lift_height
+        )
 
         try:
             base_pose = self.module.get_rpc_calls("BTManipulationModule.get_ee_pose")()
         except Exception as e:
-            logger.warning(f"[ComputeLiftPose] get_ee_pose failed, falling back to current_grasp: {e}")
+            logger.warning(
+                f"[ComputeLiftPose] get_ee_pose failed, falling back to current_grasp: {e}"
+            )
             base_pose = None
         if base_pose is None:
             try:
@@ -797,6 +825,7 @@ class ComputeLiftPose(ManipulationAction):
         )
         return Status.SUCCESS
 
+
 class ComputeLocalRetreatPose(ManipulationAction):
     """Compute retreat pose: current EE + retreat_height in Z. FAILURE if no EE pose."""
 
@@ -808,7 +837,11 @@ class ComputeLocalRetreatPose(ManipulationAction):
         self.bb.register_key(key="retreat_pose", access=py_trees.common.Access.WRITE)
 
     def update(self) -> Status:
-        height = self._retreat_height if self._retreat_height is not None else self.module.config.lift_height
+        height = (
+            self._retreat_height
+            if self._retreat_height is not None
+            else self.module.config.lift_height
+        )
 
         try:
             base_pose = self.module.get_rpc_calls("BTManipulationModule.get_ee_pose")()

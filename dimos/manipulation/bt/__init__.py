@@ -18,7 +18,10 @@ Provides a robust, BT-driven PickPlaceModule that wraps BTManipulationModule RPC
 with retry, recovery, grasp verification, and interruptible execution.
 """
 
-from dimos.manipulation.bt.bt_manipulation_module import BTManipulationModule, BTManipulationModuleConfig
+from dimos.manipulation.bt.bt_manipulation_module import (
+    BTManipulationModule,
+    BTManipulationModuleConfig,
+)
 from dimos.manipulation.bt.pick_place_module import PickPlaceModule, PickPlaceModuleConfig
 
 __all__ = [

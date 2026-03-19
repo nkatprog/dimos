@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 logger = setup_logger()
 
+
 class ManipulationCondition(py_trees.behaviour.Behaviour):
     """Base class for all BT condition nodes."""
 
@@ -41,6 +42,7 @@ class ManipulationCondition(py_trees.behaviour.Behaviour):
         super().__init__(name=name)
         self.module = module
         self.bb = self.attach_blackboard_client(name=self.name)
+
 
 class HasDetections(ManipulationCondition):
     """Check whether the blackboard has a non-empty detection list."""
@@ -58,6 +60,7 @@ class HasDetections(ManipulationCondition):
         if detections:
             return Status.SUCCESS
         return Status.FAILURE
+
 
 class GripperHasObject(ManipulationCondition):
     """Verify grasp by checking gripper position against threshold.
@@ -95,12 +98,12 @@ class GripperHasObject(ManipulationCondition):
             return Status.SUCCESS
 
         logger.warning(
-            f"[GripperHasObject] No object (position={pos:.4f}m <= "
-            f"threshold={threshold:.4f}m)"
+            f"[GripperHasObject] No object (position={pos:.4f}m <= threshold={threshold:.4f}m)"
         )
         self.bb.has_object = False
         self.bb.error_message = "Error: Grasp verification failed — gripper empty"
         return Status.FAILURE
+
 
 class RobotIsHealthy(ManipulationCondition):
     """Check that the robot is ready for new commands.
@@ -118,7 +121,11 @@ class RobotIsHealthy(ManipulationCondition):
 
         if status is not None:
             state_val = int(status.get("state", -1)) if isinstance(status, dict) else int(status)
-            if state_val in (TrajectoryState.EXECUTING, TrajectoryState.ABORTED, TrajectoryState.FAULT):
+            if state_val in (
+                TrajectoryState.EXECUTING,
+                TrajectoryState.ABORTED,
+                TrajectoryState.FAULT,
+            ):
                 logger.warning(f"[RobotIsHealthy] Bad state: {TrajectoryState(state_val).name}")
                 return Status.FAILURE
 
@@ -134,6 +141,7 @@ class RobotIsHealthy(ManipulationCondition):
 
         return Status.SUCCESS
 
+
 class HasObject(ManipulationCondition):
     """Check ``bb.has_object`` — SUCCESS if True, FAILURE otherwise."""
 
@@ -148,6 +156,7 @@ class HasObject(ManipulationCondition):
         except (KeyError, AttributeError):
             pass
         return Status.FAILURE
+
 
 class VerifyReachedPose(ManipulationCondition):
     """Verify the EE has reached a target pose within tolerance."""
@@ -168,8 +177,14 @@ class VerifyReachedPose(ManipulationCondition):
         self.bb.register_key(key="error_message", access=py_trees.common.Access.WRITE)
 
     def update(self) -> Status:
-        pos_tol = self.pos_tol if self.pos_tol is not None else self.module.config.pose_position_tolerance
-        rot_tol = self.rot_tol if self.rot_tol is not None else self.module.config.pose_orientation_tolerance
+        pos_tol = (
+            self.pos_tol if self.pos_tol is not None else self.module.config.pose_position_tolerance
+        )
+        rot_tol = (
+            self.rot_tol
+            if self.rot_tol is not None
+            else self.module.config.pose_orientation_tolerance
+        )
 
         try:
             target: Pose = getattr(self.bb, self.pose_key)
@@ -208,6 +223,7 @@ class VerifyReachedPose(ManipulationCondition):
             f"pos_err={pos_err:.4f}m, angle_err={angle_err:.4f}rad"
         )
         return Status.SUCCESS
+
 
 class VerifyHoldAfterLift(ManipulationCondition):
     """Re-check gripper after lift to confirm object wasn't dropped."""
