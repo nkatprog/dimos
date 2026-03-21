@@ -36,7 +36,6 @@ def store() -> Iterator[SqliteStore]:
     db = SqliteStore(path=str(DB_PATH))
     with db:
         yield db
-    db.stop()
 
 
 @pytest.fixture(scope="module")
@@ -45,13 +44,23 @@ def clip() -> CLIPModel:
 
 
 # GENERAL ON VIS
+#
 # these need to be functions that are easily called to render latest query results in different ways
 # I can imagine querying for multiple things and I want previous visualization to dissaper, being replaced
 # by latest results. we might do this transparently so agent queries are also visible in real time
 #
 # Actual prerequisite for this is a good python API
+#
+# I don't actually know how vis for this should look like, is visualizer just a consumer of a stream?
+#
+# visualize(embedded.search(clip.embed_text("bottle"), k=10))
+#
+# this means it could work with live (realtime) queries as well (memory supports live (ongoing) queries)
+# visualize(detections.search("bottle").live())
+#
 
 
+@pytest.mark.tool
 class TestVisualizer:
     def test_db(self, store: SqliteStore) -> None:
         print("Available streams:", store.streams)
@@ -104,12 +113,11 @@ class TestVisualizer:
             for det in obs.data.detections:
                 print(det)
                 print(
-                    lidar.at(det.ts).first().data
+                    lidar.at(obs.ts).first().data
                 )  # get a related lidar frame (can try and project)
 
     # draw the path robot took
     # VIS GOAL: I should be able to draw these poses individually or as a path
     def test_search_reconstruct_full_path(self, store: SqliteStore) -> None:
         for obs in store.streams.color_image_embedded:
-            assert obs.pose is not None
             assert obs.pose is not None

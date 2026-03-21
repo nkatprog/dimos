@@ -93,4 +93,3 @@ def sqlite_blob_store() -> Iterator[SqliteBlobStore]:
 @pytest.fixture(params=["file_blob_store", "sqlite_blob_store"])
 def blob_store(request: pytest.FixtureRequest) -> BlobStore:
     return request.getfixturevalue(request.param)
-    return request.getfixturevalue(request.param)
