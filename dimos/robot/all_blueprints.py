@@ -129,6 +129,7 @@ all_modules = {
     "grasp-gen-module": "dimos.manipulation.grasping.graspgen_module",
     "grasping-module": "dimos.manipulation.grasping.grasping",
     "gstreamer-camera-module": "dimos.hardware.sensors.camera.gstreamer.gstreamer_camera",
+    "incremental-map": "dimos.navigation.incremental_map.module",
     "joint-trajectory-controller": "dimos.manipulation.control.trajectory_controller.joint_trajectory_controller",
     "joystick-module": "dimos.robot.unitree.b1.joystick_module",
     "keyboard-teleop": "dimos.robot.unitree.keyboard_teleop",
