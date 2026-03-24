@@ -15,15 +15,22 @@
 
 """unitree-go2-dynamic-nav blueprint.
 
-Extends the base ``unitree_go2`` blueprint (navigation + planner stack) by
-swapping out ``VoxelGridMapper`` for ``DynamicMap`` — a Bayesian log-odds
-occupancy grid with 3-D DDA ray-casting.  Dynamic obstacles (moved boulders,
-pushed chairs) fade from the map as rays continue to pass through their
-former locations.
+Extends ``unitree_go2_basic`` with ``DynamicMap`` — a Bayesian log-odds
+occupancy grid with 3-D DDA ray-casting.  Dynamic obstacles fade from
+the map as rays continue to pass through their former locations.
+
+Data flow::
+
+    GO2Connection ─┬─ lidar ──▶ DynamicMap ──global_map──▶ CostMapper
+                   └─ go2_odom ──▶ DynamicMap ──odom──▶ Planner / etc.
+
+GO2Connection's ``odom`` is renamed to ``go2_odom`` so DynamicMap can
+subscribe to it without colliding with its own ``odom`` output.
+Downstream modules (planner, costmapper) read from DynamicMap's outputs.
 
 Usage::
 
-    dimos run unitree-go2-dynamic-nav
+    dimos run unitree-go2-dynamic-nav --robot-ip 192.168.123.161
     dimos --replay run unitree-go2-dynamic-nav
 """
 
@@ -36,6 +43,7 @@ from dimos.navigation.frontier_exploration.wavefront_frontier_goal_selector impo
 from dimos.navigation.patrolling.module import PatrollingModule
 from dimos.navigation.replanning_a_star.module import ReplanningAStarPlanner
 from dimos.robot.unitree.go2.blueprints.basic.unitree_go2_basic import unitree_go2_basic
+from dimos.robot.unitree.go2.connection import GO2Connection
 
 unitree_go2_dynamic_nav = (
     autoconnect(
@@ -48,14 +56,16 @@ unitree_go2_dynamic_nav = (
     )
     .remappings(
         [
-            # GO2Connection publishes on "lidar" and "odom".
-            # DynamicMap expects "registered_scan" and "raw_odom".
+            # Rename GO2Connection's odom to go2_odom to avoid collision
+            # with DynamicMap's odom output.
+            (GO2Connection, "odom", "go2_odom"),
+            # GO2Connection.lidar → DynamicMap.registered_scan
             (DynamicMap, "registered_scan", "lidar"),
-            (DynamicMap, "raw_odom", "odom"),
-            # DynamicMap passes odometry through on "odom" — downstream
-            # modules (planner, costmapper) read from "odom" directly so
-            # no extra remapping needed there.
-            # CostMapper reads from "global_map" which DynamicMap publishes.
+            # GO2Connection.go2_odom → DynamicMap.raw_odom
+            (DynamicMap, "raw_odom", "go2_odom"),
+            # DynamicMap outputs:
+            #   global_map → CostMapper.global_map (auto-wired)
+            #   odom → Planner.odom (auto-wired, no collision now)
         ]
     )
     .global_config(n_workers=7, robot_model="unitree_go2")
