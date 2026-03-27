@@ -152,7 +152,7 @@ def _tally_weighted_recent(
     weighted: Counter[str] = Counter()
     for cmd, ts, _ in votes:
         weight = 0.5 + 0.5 * ((ts - window_start) / duration)  # 0.5 → 1.0
-        weighted[cmd] += weight
+        weighted[cmd] += int(weight * 1000)
     return weighted.most_common(1)[0][0] if weighted else None
 
 
@@ -249,7 +249,9 @@ class TwitchChat(Module["TwitchChatConfig"]):
     def _run_bot(self) -> None:
         """Run the TwitchIO bot in its own asyncio loop."""
         try:
-            from twitchio.ext import commands as twitch_commands  # type: ignore[import-untyped]
+            from twitchio.ext import (
+                commands as twitch_commands,  # type: ignore[import-untyped,import-not-found]
+            )
 
             module_ref = self
 
