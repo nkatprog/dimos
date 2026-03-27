@@ -1,3 +1,17 @@
+# Copyright 2025-2026 Dimensional Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Simulated drone connection module.
 
 Minimal interface module that bridges the MuJoCo drone simulation to the
@@ -17,7 +31,6 @@ from typing import Any
 os.environ.setdefault("MUJOCO_GL", "egl")
 
 import mujoco
-import numpy as np
 
 from dimos.agents.annotation import skill
 from dimos.core.core import rpc
@@ -39,9 +52,7 @@ EARTH_R = 6_371_000.0
 
 def _local_to_gps(x: float, y: float) -> tuple[float, float]:
     lat = GPS_ORIGIN_LAT + math.degrees(x / EARTH_R)
-    lon = GPS_ORIGIN_LON + math.degrees(
-        -y / (EARTH_R * math.cos(math.radians(GPS_ORIGIN_LAT)))
-    )
+    lon = GPS_ORIGIN_LON + math.degrees(-y / (EARTH_R * math.cos(math.radians(GPS_ORIGIN_LAT))))
     return lat, lon
 
 
@@ -131,9 +142,7 @@ class SimulatedDroneConnection(Module):
         assert self._model and self._data and self._controller
 
         if not self._headless:
-            self._renderer = mujoco.Renderer(
-                self._model, self.render_height, self.render_width
-            )
+            self._renderer = mujoco.Renderer(self._model, self.render_height, self.render_width)
 
         step_count = 0
         steps_per_publish = max(1, int(1.0 / self._model.opt.timestep / 30))
@@ -168,7 +177,7 @@ class SimulatedDroneConnection(Module):
     # -- state publishing --
 
     def _publish_state(self) -> None:
-        m, d = self._model, self._data
+        d = self._data
         bid = self._controller.body_id
         pos = d.xpos[bid].copy()
         q = d.xquat[bid].copy()
@@ -192,25 +201,36 @@ class SimulatedDroneConnection(Module):
         cosy = 1.0 - 2.0 * (q[2] ** 2 + q[3] ** 2)
         heading = math.degrees(math.atan2(siny, cosy)) % 360
 
-        self.status.publish({
-            "armed": self._armed, "mode": self._mode,
-            "altitude": z, "heading": heading,
-            "vx": float(vel[3]), "vy": float(vel[4]), "vz": float(vel[5]),
-            "lat": lat, "lon": lon, "ts": now, "simulator": "mujoco",
-        })
+        self.status.publish(
+            {
+                "armed": self._armed,
+                "mode": self._mode,
+                "altitude": z,
+                "heading": heading,
+                "vx": float(vel[3]),
+                "vy": float(vel[4]),
+                "vz": float(vel[5]),
+                "lat": lat,
+                "lon": lon,
+                "ts": now,
+                "simulator": "mujoco",
+            }
+        )
 
     def _publish_camera(self) -> None:
         if not self._renderer or not self._model or not self._data:
             return
         self._renderer.update_scene(self._data, camera=self._camera_name)
         pixels = self._renderer.render()
-        self.video.publish(Image(
-            data=pixels.tobytes(),
-            width=self.render_width,
-            height=self.render_height,
-            encoding="rgb8",
-            step=self.render_width * 3,
-        ))
+        self.video.publish(
+            Image(
+                data=pixels.tobytes(),
+                width=self.render_width,
+                height=self.render_height,
+                encoding="rgb8",
+                step=self.render_width * 3,
+            )
+        )
 
     # -- input handlers --
 
@@ -221,8 +241,10 @@ class SimulatedDroneConnection(Module):
     def _on_move_twist(self, msg: Twist) -> None:
         if self._controller:
             self._controller.set_velocity(
-                float(msg.linear.x), float(msg.linear.y),
-                float(msg.linear.z), float(msg.angular.z),
+                float(msg.linear.x),
+                float(msg.linear.y),
+                float(msg.linear.z),
+                float(msg.angular.z),
             )
 
     def _on_gps_goal(self, cmd: LatLon) -> None:
@@ -231,7 +253,11 @@ class SimulatedDroneConnection(Module):
         bid = self._controller.body_id
         pos = self._data.xpos[bid]
         dx = math.radians(cmd.lat - GPS_ORIGIN_LAT) * EARTH_R
-        dy = -(math.radians(cmd.lon - GPS_ORIGIN_LON) * EARTH_R * math.cos(math.radians(GPS_ORIGIN_LAT)))
+        dy = -(
+            math.radians(cmd.lon - GPS_ORIGIN_LON)
+            * EARTH_R
+            * math.cos(math.radians(GPS_ORIGIN_LAT))
+        )
         ex, ey = dx - pos[0], dy - pos[1]
         dist = math.sqrt(ex**2 + ey**2)
         if dist > 0.5:
@@ -253,8 +279,14 @@ class SimulatedDroneConnection(Module):
         return "Simulation not running"
 
     @skill
-    def move_with_yaw(self, vx: float = 0.0, vy: float = 0.0, vz: float = 0.0,
-                      yaw_rate: float = 0.0, duration: float = 2.0) -> str:
+    def move_with_yaw(
+        self,
+        vx: float = 0.0,
+        vy: float = 0.0,
+        vz: float = 0.0,
+        yaw_rate: float = 0.0,
+        duration: float = 2.0,
+    ) -> str:
         """Move with velocity and yaw. Positive yaw_rate = turn right."""
         if self._controller:
             self._controller.set_velocity(vx, vy, vz, yaw_rate)
@@ -270,6 +302,7 @@ class SimulatedDroneConnection(Module):
         self._mode = "GUIDED"
         if self._controller:
             self._controller.set_velocity(0, 0, 1.0, 0)
+
             def _check() -> None:
                 if self._data is not None:
                     bid = self._controller.body_id
@@ -278,6 +311,7 @@ class SimulatedDroneConnection(Module):
                         return
                 if self._running:
                     threading.Timer(0.2, _check).start()
+
             threading.Timer(0.5, _check).start()
         return f"Taking off to {altitude}m"
 
@@ -287,6 +321,7 @@ class SimulatedDroneConnection(Module):
         self._mode = "LAND"
         if self._controller:
             self._controller.set_velocity(0, 0, -0.5, 0)
+
             def _check() -> None:
                 if self._data is not None:
                     bid = self._controller.body_id
@@ -296,6 +331,7 @@ class SimulatedDroneConnection(Module):
                         return
                 if self._running:
                     threading.Timer(0.2, _check).start()
+
             threading.Timer(0.5, _check).start()
         return "Landing"
 

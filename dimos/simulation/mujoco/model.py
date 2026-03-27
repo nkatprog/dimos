@@ -27,7 +27,12 @@ from dimos.core.global_config import GlobalConfig
 from dimos.mapping.occupancy.extrude_occupancy import generate_mujoco_scene
 from dimos.msgs.nav_msgs.OccupancyGrid import OccupancyGrid
 from dimos.simulation.mujoco.input_controller import InputController
-from dimos.simulation.mujoco.policy import DroneController, G1OnnxController, Go1OnnxController, OnnxController
+from dimos.simulation.mujoco.policy import (
+    DroneController,
+    G1OnnxController,
+    Go1OnnxController,
+    OnnxController,
+)
 from dimos.utils.data import get_data
 
 

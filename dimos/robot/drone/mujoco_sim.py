@@ -20,13 +20,12 @@ import tty
 
 import mujoco
 import mujoco.viewer
-import numpy as np
 
-from dimos.robot.drone.sim import GPS_ORIGIN_LAT, GPS_ORIGIN_LON, EARTH_R, _local_to_gps
+from dimos.mapping.types import LatLon
+from dimos.msgs.geometry_msgs import PoseStamped, Quaternion, Vector3
+from dimos.robot.drone.sim import EARTH_R, GPS_ORIGIN_LAT, GPS_ORIGIN_LON, _local_to_gps
 from dimos.simulation.mujoco.policy import DroneController
 from dimos.utils.data import get_data
-from dimos.mapping.types import LatLon
-from dimos.msgs.geometry_msgs import PoseStamped, Quaternion, Twist, Vector3
 
 
 class DimOSBridge:
@@ -57,14 +56,18 @@ class DimOSBridge:
         self._cmd_thread = threading.Thread(target=self._cmd_listen_loop, daemon=True)
         self._cmd_thread.start()
 
-        print(f"[DimOS] Bridge started — listening on UDP {CMD_PORT}, agent at http://localhost:5555")
+        print(
+            f"[DimOS] Bridge started — listening on UDP {CMD_PORT}, agent at http://localhost:5555"
+        )
 
     def _start_agent(self) -> None:
         try:
             from dimos.agents.agent import agent as make_agent
             from dimos.agents.web_human_input import web_input
             from dimos.core.blueprints import autoconnect
-            from dimos.robot.drone.blueprints.sim.drone_sim import DRONE_SIM_SYSTEM_PROMPT as DRONE_SYSTEM_PROMPT
+            from dimos.robot.drone.blueprints.sim.drone_sim import (
+                DRONE_SIM_SYSTEM_PROMPT as DRONE_SYSTEM_PROMPT,
+            )
             from dimos.robot.drone.mujoco_skill_proxy import MuJocoSkillProxy
             from dimos.web.websocket_vis.websocket_vis_module import WebsocketVisModule
 
@@ -77,6 +80,7 @@ class DimOSBridge:
             bp.build().loop()
         except Exception as e:
             import traceback
+
             print(f"[DimOS] Agent startup error: {e}")
             traceback.print_exc()
 
@@ -128,7 +132,11 @@ class DimOSBridge:
             lat = float(cmd.get("lat", 0))
             lon = float(cmd.get("lon", 0))
             dx = math.radians(lat - GPS_ORIGIN_LAT) * EARTH_R
-            dy = -(math.radians(lon - GPS_ORIGIN_LON) * EARTH_R * math.cos(math.radians(GPS_ORIGIN_LAT)))
+            dy = -(
+                math.radians(lon - GPS_ORIGIN_LON)
+                * EARTH_R
+                * math.cos(math.radians(GPS_ORIGIN_LAT))
+            )
             pos = self.controller.data.xpos[self.controller.body_id]
             ex, ey = dx - pos[0], dy - pos[1]
             dist = math.sqrt(ex**2 + ey**2)
@@ -151,7 +159,9 @@ class DimOSBridge:
 
         pose = PoseStamped(
             position=Vector3(x, y, z),
-            orientation=Quaternion(float(quat_mj[1]), float(quat_mj[2]), float(quat_mj[3]), float(quat_mj[0])),
+            orientation=Quaternion(
+                float(quat_mj[1]), float(quat_mj[2]), float(quat_mj[3]), float(quat_mj[0])
+            ),
             frame_id="world",
             ts=now,
         )
@@ -165,11 +175,19 @@ class DimOSBridge:
         heading_deg = math.degrees(math.atan2(siny, cosy)) % 360
 
         from dimos_lcm.std_msgs import String
+
         status = {
-            "armed": True, "mode": "GUIDED", "altitude": z,
-            "heading": heading_deg, "lat": lat, "lon": lon,
-            "vx": float(vel[3]), "vy": float(vel[4]), "vz": float(vel[5]),
-            "simulator": "mujoco", "ts": now,
+            "armed": True,
+            "mode": "GUIDED",
+            "altitude": z,
+            "heading": heading_deg,
+            "lat": lat,
+            "lon": lon,
+            "vx": float(vel[3]),
+            "vy": float(vel[4]),
+            "vz": float(vel[5]),
+            "simulator": "mujoco",
+            "ts": now,
         }
         self._status_pub.publish(String(json.dumps(status)))
 
@@ -250,19 +268,39 @@ def main() -> None:
                 if use_keyboard and select.select([sys.stdin], [], [], 0)[0]:
                     key = sys.stdin.read(1)
                     cmds = {
-                        't': (lambda: (controller.set_velocity(0, 0, 1.5, 0), print(">> Takeoff"))),
-                        'l': (lambda: (controller.set_velocity(0, 0, -0.5, 0), print(">> Landing"))),
-                        'w': (lambda: (controller.set_velocity(2.0, 0, 0, 0), print(">> Forward"))),
-                        's': (lambda: (controller.set_velocity(-2.0, 0, 0, 0), print(">> Backward"))),
-                        'a': (lambda: (controller.set_velocity(0, 0, 0, -1.0), print(">> Yaw left"))),
-                        'd': (lambda: (controller.set_velocity(0, 0, 0, 1.0), print(">> Yaw right"))),
-                        'q': (lambda: (controller.set_velocity(0, -2.0, 0, 0), print(">> Strafe left"))),
-                        'e': (lambda: (controller.set_velocity(0, 2.0, 0, 0), print(">> Strafe right"))),
-                        'r': (lambda: (controller.set_velocity(0, 0, 1.0, 0), print(">> Alt up"))),
-                        'f': (lambda: (controller.set_velocity(0, 0, -1.0, 0), print(">> Alt down"))),
-                        'x': (lambda: (controller.set_velocity(0, 0, 0, 0), print(">> Stop"))),
+                        "t": (lambda: (controller.set_velocity(0, 0, 1.5, 0), print(">> Takeoff"))),
+                        "l": (
+                            lambda: (controller.set_velocity(0, 0, -0.5, 0), print(">> Landing"))
+                        ),
+                        "w": (lambda: (controller.set_velocity(2.0, 0, 0, 0), print(">> Forward"))),
+                        "s": (
+                            lambda: (controller.set_velocity(-2.0, 0, 0, 0), print(">> Backward"))
+                        ),
+                        "a": (
+                            lambda: (controller.set_velocity(0, 0, 0, -1.0), print(">> Yaw left"))
+                        ),
+                        "d": (
+                            lambda: (controller.set_velocity(0, 0, 0, 1.0), print(">> Yaw right"))
+                        ),
+                        "q": (
+                            lambda: (
+                                controller.set_velocity(0, -2.0, 0, 0),
+                                print(">> Strafe left"),
+                            )
+                        ),
+                        "e": (
+                            lambda: (
+                                controller.set_velocity(0, 2.0, 0, 0),
+                                print(">> Strafe right"),
+                            )
+                        ),
+                        "r": (lambda: (controller.set_velocity(0, 0, 1.0, 0), print(">> Alt up"))),
+                        "f": (
+                            lambda: (controller.set_velocity(0, 0, -1.0, 0), print(">> Alt down"))
+                        ),
+                        "x": (lambda: (controller.set_velocity(0, 0, 0, 0), print(">> Stop"))),
                     }
-                    if key == '\x1b':
+                    if key == "\x1b":
                         break
                     elif key in cmds:
                         cmds[key]()

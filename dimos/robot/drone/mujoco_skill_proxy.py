@@ -66,13 +66,19 @@ class MuJocoSkillProxy(Module):
             z: Up/down velocity m/s (positive = up)
             duration: How long to move in seconds (0 = single command)
         """
-        self._send_cmd({"type": "velocity", "vx": x, "vy": y, "vz": z, "yaw_rate": 0, "duration": duration})
+        self._send_cmd(
+            {"type": "velocity", "vx": x, "vy": y, "vz": z, "yaw_rate": 0, "duration": duration}
+        )
         return f"Moving: vx={x}, vy={y}, vz={z} for {duration}s"
 
     @skill
     def move_with_yaw(
-        self, vx: float = 0.0, vy: float = 0.0, vz: float = 0.0,
-        yaw_rate: float = 0.0, duration: float = 2.0,
+        self,
+        vx: float = 0.0,
+        vy: float = 0.0,
+        vz: float = 0.0,
+        yaw_rate: float = 0.0,
+        duration: float = 2.0,
     ) -> str:
         """Move the drone with velocity and yaw control.
 
@@ -85,7 +91,16 @@ class MuJocoSkillProxy(Module):
             yaw_rate: Yaw rate rad/s (positive=right). 1.57 = ~90 deg/s.
             duration: Seconds to apply
         """
-        self._send_cmd({"type": "velocity", "vx": vx, "vy": vy, "vz": vz, "yaw_rate": yaw_rate, "duration": duration})
+        self._send_cmd(
+            {
+                "type": "velocity",
+                "vx": vx,
+                "vy": vy,
+                "vz": vz,
+                "yaw_rate": yaw_rate,
+                "duration": duration,
+            }
+        )
         return f"Moving: vx={vx}, vy={vy}, vz={vz}, yaw={yaw_rate} for {duration}s"
 
     @skill
@@ -126,7 +141,9 @@ class MuJocoSkillProxy(Module):
 
     def _exec_segment(self, vx: float, vy: float, vz: float, duration: float) -> None:
         """Execute a velocity segment and wait."""
-        self._send_cmd({"type": "velocity", "vx": vx, "vy": vy, "vz": vz, "yaw_rate": 0, "duration": duration})
+        self._send_cmd(
+            {"type": "velocity", "vx": vx, "vy": vy, "vz": vz, "yaw_rate": 0, "duration": duration}
+        )
         time.sleep(duration)
 
     def _hover(self, duration: float) -> None:
@@ -153,9 +170,9 @@ class MuJocoSkillProxy(Module):
         letter width, altitude for letter height. No tilting — the drone stays level.
         """
         SP = 0.3  # speed m/s
-        H = 1.0   # letter height (altitude change)
-        W = 0.6   # letter width (forward distance)
-        GAP = 0.3 # gap between letters (forward)
+        H = 1.0  # letter height (altitude change)
+        W = 0.6  # letter width (forward distance)
+        GAP = 0.3  # gap between letters (forward)
 
         logger.info("Starting DimOS sky-writing sequence...")
 
