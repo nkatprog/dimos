@@ -106,6 +106,7 @@ def _reset_thread_pool() -> None:
     tp.scheduler = ThreadPoolScheduler(max_workers=tp.get_max_workers())
 
 
+@pytest.mark.tool
 @pytest.mark.parametrize("module_cls", module_cases)
 def test_e2e_runtime_wiring(module_cls: type[StreamModule]) -> None:
     """Push data into In port, assert doubled data arrives on Out port."""
@@ -126,4 +127,5 @@ def test_e2e_runtime_wiring(module_cls: type[StreamModule]) -> None:
     finally:
         unsub()
         module.stop()
+        _reset_thread_pool()
         _reset_thread_pool()
