@@ -104,8 +104,12 @@ def sim_nav():
 
     render = os.environ.get("DIMSIM_RENDER", "cpu")
     venv_bin = str(Path(sys.prefix) / "bin")
-    env = {**os.environ, "DIMSIM_HEADLESS": "1", "DIMSIM_RENDER": render,
-           "PATH": venv_bin + os.pathsep + os.environ.get("PATH", "")}
+    env = {
+        **os.environ,
+        "DIMSIM_HEADLESS": "1",
+        "DIMSIM_RENDER": render,
+        "PATH": venv_bin + os.pathsep + os.environ.get("PATH", ""),
+    }
     call = DimosCliCall()
     call.demo_args = ["sim-nav"]
     call.process = subprocess.Popen(

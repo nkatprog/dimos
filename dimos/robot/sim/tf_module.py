@@ -26,7 +26,6 @@ DimSimConnection while the NativeModule bridge handles sensor data directly.
 import math
 from threading import Thread
 import time
-from typing import Optional
 
 from dimos.core.core import rpc
 from dimos.core.module import Module
@@ -84,8 +83,8 @@ class DimSimTF(Module):
     camera_info: Out[CameraInfo]
     cmd_vel: Out[Twist]
 
-    _camera_info_thread: Optional[Thread] = None
-    _latest_odom: Optional[PoseStamped] = None
+    _camera_info_thread: Thread | None = None
+    _latest_odom: PoseStamped | None = None
     _odom_last_ts: float = 0.0
     _odom_count: int = 0
 

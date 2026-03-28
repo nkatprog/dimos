@@ -31,7 +31,6 @@ Usage::
 import os
 from pathlib import Path
 import shutil
-from typing import Optional
 
 from pydantic import Field
 
@@ -62,7 +61,7 @@ def _find_deno() -> str:
     return shutil.which("deno") or str(Path.home() / ".deno" / "bin" / "deno")
 
 
-def _find_local_cli() -> Optional[Path]:
+def _find_local_cli() -> Path | None:
     """Find local DimSim/dimos-cli/cli.ts for development."""
     repo_root = Path(__file__).resolve().parents[4]
     candidate = repo_root / "DimSim" / "dimos-cli" / "cli.ts"
@@ -74,8 +73,8 @@ class DimSimBridgeConfig(NativeModuleConfig):
 
     # Resolved in _resolve_paths() — compiled binary or deno (local dev).
     executable: str = "dimsim"
-    build_command: Optional[str] = None
-    cwd: Optional[str] = None
+    build_command: str | None = None
+    cwd: str | None = None
 
     scene: str = "apt"
     port: int = 8090
@@ -166,7 +165,9 @@ class DimSimBridge(NativeModule, Camera, Pointcloud):
 
         # Prefer compiled binary over PATH (PATH may have stale deno-installed version)
         dimsim_bin = _dimsim_bin()
-        dimsim_path = str(dimsim_bin) if dimsim_bin.exists() else shutil.which("dimsim") or str(dimsim_bin)
+        dimsim_path = (
+            str(dimsim_bin) if dimsim_bin.exists() else shutil.which("dimsim") or str(dimsim_bin)
+        )
         self.config.executable = dimsim_path
         self.config.extra_args = dev_args
         self.config.cwd = None

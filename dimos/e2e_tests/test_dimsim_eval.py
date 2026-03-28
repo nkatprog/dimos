@@ -155,8 +155,12 @@ def sim_eval():
     spy.start()
 
     venv_bin = str(Path(sys.prefix) / "bin")
-    env = {**os.environ, "DIMSIM_HEADLESS": "1", "DIMSIM_RENDER": "gpu",
-           "PATH": venv_bin + os.pathsep + os.environ.get("PATH", "")}
+    env = {
+        **os.environ,
+        "DIMSIM_HEADLESS": "1",
+        "DIMSIM_RENDER": "gpu",
+        "PATH": venv_bin + os.pathsep + os.environ.get("PATH", ""),
+    }
     call = DimosCliCall()
     call.demo_args = ["sim-eval"]
     call.process = subprocess.Popen(
