@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """
-Prompts that are safe to call in modules (despite potentially no stdin, or poentially a TUI that eats/controls the stdin)
+Prompts that are safe to call in modules (despite potentially no stdin, or potentially a TUI that eats/controls the stdin)
 """
 
 from __future__ import annotations
@@ -25,16 +25,29 @@ from typing import Any
 
 
 def confirm(message: str, *, default: bool = True) -> bool:
-    """Ask yes/no"""
+    """Ask yes/no.
+
+    In non-interactive mode (no tty), returns *default* without prompting
+    — useful for daemons and CI where stdin is unavailable.
+
+    In interactive mode, no default is pre-selected so the user must
+    explicitly type ``y`` or ``n``.  This prevents accidental Enter-mashing
+    from silently triggering system changes (some of which require sudo).
+    """
     if not sys.stdin.isatty():
         return default
     import typer
 
-    return typer.confirm(message, default=default)
+    # No default in interactive mode — require explicit y/n
+    return typer.confirm(message)
 
 
 def sudo_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
     """Run a command, prepending sudo if not already root."""
-    if os.geteuid() == 0:
+    try:
+        is_root = os.geteuid() == 0
+    except AttributeError:
+        is_root = False
+    if is_root:
         return subprocess.run(list(args), **kwargs)
     return subprocess.run(["sudo", *args], **kwargs)
