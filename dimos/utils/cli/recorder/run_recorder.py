@@ -311,17 +311,17 @@ class RecorderApp(App[None]):
         self._recorder.stop_recording()
         await self._recorder.stop_playback()
 
-    def action_seek_back(self) -> None:
-        self._seek_relative(-5.0)
+    async def action_seek_back(self) -> None:
+        await self._seek_relative(-5.0)
 
-    def action_seek_fwd(self) -> None:
-        self._seek_relative(5.0)
+    async def action_seek_fwd(self) -> None:
+        await self._seek_relative(5.0)
 
-    def action_seek_back_big(self) -> None:
-        self._seek_relative(-30.0)
+    async def action_seek_back_big(self) -> None:
+        await self._seek_relative(-30.0)
 
-    def action_seek_fwd_big(self) -> None:
-        self._seek_relative(30.0)
+    async def action_seek_fwd_big(self) -> None:
+        await self._seek_relative(30.0)
 
     def action_mark_trim_start(self) -> None:
         if self._recorder:
@@ -331,16 +331,16 @@ class RecorderApp(App[None]):
         if self._recorder:
             self._trim_out = self._recorder.position
 
-    def action_do_trim(self) -> None:
+    async def action_do_trim(self) -> None:
         if self._recorder and self._trim_in is not None and self._trim_out is not None:
-            self._recorder.stop_playback()
+            await self._recorder.stop_playback()
             lo, hi = sorted((self._trim_in, self._trim_out))
             self._recorder.trim(lo, hi)
             self._trim_in = self._trim_out = None
 
-    def action_do_delete(self) -> None:
+    async def action_do_delete(self) -> None:
         if self._recorder and self._trim_in is not None and self._trim_out is not None:
-            self._recorder.stop_playback()
+            await self._recorder.stop_playback()
             lo, hi = sorted((self._trim_in, self._trim_out))
             self._recorder.delete_range(lo, hi)
             self._trim_in = self._trim_out = None
@@ -356,9 +356,9 @@ class RecorderApp(App[None]):
             self._lcm.start()
         self._recorder.play(pubsub=self._lcm, speed=1.0)
 
-    def _seek_relative(self, delta: float) -> None:
+    async def _seek_relative(self, delta: float) -> None:
         if self._recorder:
-            self._recorder.seek(self._recorder.position + delta)
+            await self._recorder.seek(self._recorder.position + delta)
 
     # ------------------------------------------------------------------
     # Refresh

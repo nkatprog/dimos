@@ -331,7 +331,7 @@ class RecordReplay:
                 await self._play_task
             self._play_task = None
 
-    def seek(self, seconds: float) -> None:
+    async def seek(self, seconds: float) -> None:
         """Set playback position in seconds from recording start.
 
         Takes effect immediately if playing (restarts playback loop).
@@ -339,7 +339,7 @@ class RecordReplay:
         """
         self._position = max(0.0, min(seconds, self.duration))
         if self.is_playing:
-            self.stop_playback()
+            await self.stop_playback()
             assert self._pubsub is not None
             self.play(pubsub=self._pubsub, speed=self._play_speed)
 

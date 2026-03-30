@@ -238,7 +238,7 @@ class TestRecordReplay:
                 await asyncio.sleep(0.01)
             rec.stop_recording()
 
-            rec.seek(0.05)
+            await rec.seek(0.05)
             assert rec.position == pytest.approx(0.05, abs=0.01)
 
     async def test_multiple_pubsubs(self, tmp_db: str) -> None:
