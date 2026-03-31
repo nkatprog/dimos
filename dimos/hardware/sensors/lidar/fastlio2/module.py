@@ -30,9 +30,12 @@ Usage::
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
+import socket
 from typing import TYPE_CHECKING, Annotated
 
+from pydantic import field_validator
 from pydantic.experimental.pipeline import validate_as
 
 from dimos.core.native_module import NativeModule, NativeModuleConfig
@@ -52,8 +55,55 @@ from dimos.hardware.sensors.lidar.livox.ports import (
 from dimos.msgs.nav_msgs.Odometry import Odometry
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
 from dimos.spec import mapping, perception
+from dimos.utils.logging_config import setup_logger
 
 _CONFIG_DIR = Path(__file__).parent / "config"
+_logger = setup_logger()
+
+
+def _get_local_ips() -> list[str]:
+    """Return all IPv4 addresses assigned to local interfaces."""
+    ips: list[str] = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addr = str(info[4][0])
+            if addr not in ips:
+                ips.append(addr)
+    except socket.gaierror:
+        pass
+    # Also grab addresses via DGRAM trick for interfaces without DNS
+    try:
+        import subprocess
+
+        out = subprocess.check_output(
+            ["ip", "-4", "-o", "addr", "show"],
+            timeout=5,
+            stderr=subprocess.DEVNULL,
+        ).decode()
+        for line in out.splitlines():
+            # e.g. "2: eth0    inet 192.168.123.5/24 ..."
+            parts = line.split()
+            for i, p in enumerate(parts):
+                if p == "inet" and i + 1 < len(parts):
+                    addr = parts[i + 1].split("/")[0]
+                    if addr not in ips:
+                        ips.append(addr)
+    except Exception:
+        pass
+    return ips
+
+
+def _find_candidate_ips(lidar_ip: str, local_ips: list[str]) -> list[str]:
+    """Suggest local IPs on the same subnet as the lidar."""
+    candidates: list[str] = []
+    try:
+        lidar_net = ipaddress.IPv4Network(f"{lidar_ip}/24", strict=False)
+        for ip in local_ips:
+            if ipaddress.IPv4Address(ip) in lidar_net:
+                candidates.append(ip)
+    except (ValueError, TypeError):
+        pass
+    return candidates
 
 
 class FastLio2Config(NativeModuleConfig):
@@ -67,6 +117,20 @@ class FastLio2Config(NativeModuleConfig):
     host_ip: str = "192.168.1.5"
     lidar_ip: str = "192.168.1.155"
     frequency: float = 10.0
+
+    # Initial pose offset [x, y, z, qx, qy, qz, qw] applied to all SLAM outputs.
+    # Set z to sensor mount height above ground for correct terrain analysis.
+    # Quaternion (qx, qy, qz, qw) for angled mounts; identity = [0,0,0, 0,0,0,1].
+    init_pose: list[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+
+    @field_validator("init_pose")
+    @classmethod
+    def _check_init_pose_length(cls, v: list[float]) -> list[float]:
+        if len(v) != 7:
+            raise ValueError(
+                f"init_pose must have exactly 7 elements [x,y,z,qx,qy,qz,qw], got {len(v)}"
+            )
+        return v
 
     # Frame IDs for output messages
     frame_id: str = "map"
@@ -108,11 +172,20 @@ class FastLio2Config(NativeModuleConfig):
     host_imu_data_port: int = SDK_HOST_IMU_DATA_PORT
     host_log_data_port: int = SDK_HOST_LOG_DATA_PORT
 
-    # Resolved in __post_init__, passed as --config_path to the binary
+    # Passed as --config_path to the binary (resolved from ``config`` in post-init)
     config_path: str | None = None
 
-    # config is not a CLI arg (config_path is)
+    # config is not a CLI arg (config_path is the resolved version)
     cli_exclude: frozenset[str] = frozenset({"config"})
+
+    def model_post_init(self, __context: object) -> None:
+        """Resolve config_path from the config YAML field."""
+        super().model_post_init(__context)
+        # The validate_as pipeline may not fire for defaults, so resolve here.
+        cfg = self.config
+        if not cfg.is_absolute():
+            cfg = _CONFIG_DIR / cfg
+        self.config_path = str(cfg.resolve())
 
 
 class FastLio2(
@@ -130,6 +203,75 @@ class FastLio2(
     lidar: Out[PointCloud2]
     odometry: Out[Odometry]
     global_map: Out[PointCloud2]
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._validate_network()
+
+    def _validate_network(self) -> None:
+        """Pre-flight check: verify host_ip is reachable and suggest alternatives."""
+        host_ip = self.config.host_ip
+        lidar_ip = self.config.lidar_ip
+        local_ips = _get_local_ips()
+
+        _logger.info(
+            "FastLio2 network check",
+            host_ip=host_ip,
+            lidar_ip=lidar_ip,
+            local_ips=local_ips,
+        )
+
+        # Check if host_ip is actually assigned to this machine.
+        if host_ip not in local_ips:
+            same_subnet = _find_candidate_ips(lidar_ip, local_ips)
+
+            if same_subnet:
+                picked = same_subnet[0]
+                _logger.warning(
+                    f"FastLio2: host_ip={host_ip!r} not found locally. "
+                    f"Auto-correcting to {picked!r} (same subnet as lidar {lidar_ip}).",
+                    configured_ip=host_ip,
+                    corrected_ip=picked,
+                    lidar_ip=lidar_ip,
+                    local_ips=local_ips,
+                )
+                self.config.host_ip = picked
+                host_ip = picked
+            else:
+                subnet_prefix = ".".join(lidar_ip.split(".")[:3])
+                msg = (
+                    f"FastLio2: host_ip={host_ip!r} is not assigned to any local interface.\n"
+                    f"  Lidar IP: {lidar_ip}\n"
+                    f"  Local IPs found: {', '.join(local_ips) or '(none)'}\n"
+                    f"  No local IP found on the same subnet as lidar ({lidar_ip}).\n"
+                    f"  The lidar network interface may be down or unconfigured.\n"
+                    f"  → Check: ip addr | grep {subnet_prefix}\n"
+                    f"  → Or assign an IP: "
+                    f"sudo ip addr add {subnet_prefix}.5/24 dev <iface>\n"
+                )
+                _logger.error(msg)
+                raise RuntimeError(msg)
+
+        # Check if we can bind a UDP socket on host_ip (port 0 = ephemeral).
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.bind((host_ip, 0))
+        except OSError as e:
+            _logger.error(
+                f"FastLio2: Cannot bind UDP socket on host_ip={host_ip!r}: {e}\n"
+                f"  Another process may be using the Livox SDK ports.\n"
+                f"  → Check: ss -ulnp | grep {host_ip}"
+            )
+            raise RuntimeError(
+                f"FastLio2: Cannot bind UDP on {host_ip}: {e}. "
+                f"Check if another Livox/FastLio2 process is running."
+            ) from e
+
+        _logger.info(
+            "FastLio2 network check passed",
+            host_ip=host_ip,
+            lidar_ip=lidar_ip,
+        )
 
 
 # Verify protocol port compliance (mypy will flag missing ports)

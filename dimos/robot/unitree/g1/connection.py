@@ -117,3 +117,6 @@ def deploy(dimos: ModuleCoordinator, ip: str, local_planner: LocalPlanner) -> "M
     connection.cmd_vel.connect(local_planner.cmd_vel)
     connection.start()
     return connection
+
+
+__all__ = ["G1Connection", "G1ConnectionBase", "deploy"]

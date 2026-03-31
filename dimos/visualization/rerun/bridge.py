@@ -56,6 +56,7 @@ _HEAVY_MSG_TYPES: tuple[type, ...] = (Image, PointCloud2)
 RERUN_GRPC_PORT = 9876
 RERUN_WEB_PORT = 9090
 
+
 # TODO OUT visual annotations
 #
 # In the future it would be nice if modules can annotate their individual OUTs with (general or rerun specific)
@@ -133,7 +134,9 @@ ViewerMode = Literal["native", "web", "connect", "none"]
 def _hex_to_rgba(hex_color: str) -> int:
     """Convert '#RRGGBB' to a 0xRRGGBBAA int (fully opaque)."""
     h = hex_color.lstrip("#")
-    return (int(h, 16) << 8) | 0xFF
+    if len(h) == 6:
+        return int(h + "ff", 16)
+    return int(h[:8], 16)
 
 
 def _with_graph_tab(bp: Blueprint) -> Blueprint:
@@ -157,7 +160,7 @@ def _default_blueprint() -> Blueprint:
     import rerun as rr
     import rerun.blueprint as rrb
 
-    return rrb.Blueprint(
+    return rrb.Blueprint(  # type: ignore[no-any-return]
         rrb.Spatial3DView(
             origin="world",
             background=rrb.Background(kind="SolidColor", color=[0, 0, 0]),
@@ -223,10 +226,12 @@ class RerunBridgeModule(Module[Config]):
     """
 
     default_config = Config
+    _last_log: dict[str, float] = {}
 
-    GV_SCALE = 100.0  # graphviz inches to rerun screen units
-    MODULE_RADIUS = 30.0
-    CHANNEL_RADIUS = 20.0
+    # Graphviz layout scale and node radii for blueprint graph
+    GV_SCALE = 100.0
+    MODULE_RADIUS = 20.0
+    CHANNEL_RADIUS = 12.0
 
     @lru_cache(maxsize=256)
     def _visual_override_for_entity_path(
@@ -310,13 +315,14 @@ class RerunBridgeModule(Module[Config]):
 
         super().start()
 
-        self._last_log: dict[str, float] = {}
+        self._last_log: dict[str, float] = {}  # reset on each start
         logger.info("Rerun bridge starting", viewer_mode=self.config.viewer_mode)
 
         # Initialize and spawn Rerun viewer
         rr.init("dimos")
 
         if self.config.viewer_mode == "native":
+            spawned = False
             try:
                 import rerun_bindings
 
@@ -325,6 +331,7 @@ class RerunBridgeModule(Module[Config]):
                     executable_name="dimos-viewer",
                     memory_limit=self.config.memory_limit,
                 )
+                spawned = True
             except ImportError:
                 pass  # dimos-viewer not installed
             except Exception:
@@ -332,12 +339,31 @@ class RerunBridgeModule(Module[Config]):
                     "dimos-viewer found but failed to spawn, falling back to stock rerun",
                     exc_info=True,
                 )
-            rr.spawn(connect=True, memory_limit=self.config.memory_limit)
+            if not spawned:
+                try:
+                    rr.spawn(connect=True, memory_limit=self.config.memory_limit)
+                except (RuntimeError, FileNotFoundError):
+                    logger.warning(
+                        "Rerun native viewer not available (headless?). "
+                        "Bridge will continue without a viewer — data is still "
+                        "accessible via rerun-connect or rerun-web.",
+                        exc_info=True,
+                    )
         elif self.config.viewer_mode == "web":
             server_uri = rr.serve_grpc()
             rr.serve_web_viewer(connect_to=server_uri, open_browser=False)
         elif self.config.viewer_mode == "connect":
-            rr.connect_grpc(self.config.connect_url)
+            # Serve gRPC so external viewers (dimos-viewer) can connect to us.
+            # Extract the port from the connect_url to match what viewers expect.
+            from urllib.parse import urlparse
+
+            parsed = urlparse(self.config.connect_url.replace("rerun+", "", 1))
+            grpc_port = parsed.port or RERUN_GRPC_PORT
+            rr.serve_grpc(
+                grpc_port=grpc_port,
+                server_memory_limit=self.config.memory_limit,
+            )
+            logger.info(f"Rerun gRPC server ready at {self.config.connect_url}")
         # "none" - just init, no viewer (connect externally)
 
         if self.config.blueprint:
@@ -437,6 +463,7 @@ class RerunBridgeModule(Module[Config]):
 
     @rpc
     def stop(self) -> None:
+        self._visual_override_for_entity_path.cache_clear()
         super().stop()
 
 

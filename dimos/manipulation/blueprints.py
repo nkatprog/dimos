@@ -46,7 +46,6 @@ from dimos.msgs.geometry_msgs.Vector3 import Vector3
 from dimos.msgs.sensor_msgs.JointState import JointState
 from dimos.perception.object_scene_registration import ObjectSceneRegistrationModule
 from dimos.robot.catalog.ufactory import xarm7 as _catalog_xarm7
-from dimos.robot.foxglove_bridge import FoxgloveBridge  # TODO: migrate to rerun
 from dimos.utils.data import get_data
 
 
@@ -405,7 +404,7 @@ xarm_perception = (
             use_aabb=True,
             max_obstacle_width=0.06,
         ),
-        FoxgloveBridge.blueprint(),  # TODO: migrate to rerun
+        vis_module("foxglove"),
     )
     .transports(
         {
