@@ -136,6 +136,7 @@ class Store(Configurable[StoreConfig], CompositeResource):
         return Backend(
             metadata_store=obs,
             codec=codec,
+            data_type=payload_type or object,
             blob_store=bs,
             vector_store=vs,
             notifier=notifier,

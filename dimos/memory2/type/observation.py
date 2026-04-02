@@ -45,6 +45,7 @@ class Observation(Generic[T]):
 
     id: int
     ts: float
+    data_type: type = object
     pose: Any | None = None
     tags: dict[str, Any] = field(default_factory=dict)
     _data: T | _Unloaded = field(default=_UNLOADED, repr=False)
@@ -87,6 +88,7 @@ class Observation(Generic[T]):
             return EmbeddedObservation(
                 id=self.id,
                 ts=overrides.get("ts", self.ts),
+                data_type=type(data),
                 pose=overrides.get("pose", self.pose),
                 tags=overrides.get("tags", self.tags),
                 _data=data,
@@ -96,6 +98,7 @@ class Observation(Generic[T]):
         return Observation(
             id=self.id,
             ts=overrides.get("ts", self.ts),
+            data_type=type(data),
             pose=overrides.get("pose", self.pose),
             tags=overrides.get("tags", self.tags),
             _data=data,
@@ -114,6 +117,7 @@ class EmbeddedObservation(Observation[T]):
         return EmbeddedObservation(
             id=self.id,
             ts=overrides.get("ts", self.ts),
+            data_type=type(data),
             pose=overrides.get("pose", self.pose),
             tags=overrides.get("tags", self.tags),
             _data=data,

@@ -35,6 +35,7 @@ drawing.add(global_map)
 drawing.add(store.streams.color_image.transform(throttle(0.5)).transform(speed()))
 
 
+
 embedded = store.streams.color_image_embedded
 #bottle_pos = embedded.search(clip.embed_text("shop"), k=10)
 
@@ -42,6 +43,8 @@ embedded = store.streams.color_image_embedded
 #drawing.add(bottle_pos.map(lambda obs: obs.pose_stamped))
 drawing.to_svg("assets/imageposes.svg")
 ```
+
+
 
 
 

@@ -50,6 +50,7 @@ class Backend(CompositeResource, Generic[T]):
         *,
         metadata_store: ObservationStore[T],
         codec: Codec[Any],
+        data_type: type = object,
         blob_store: BlobStore | None = None,
         vector_store: VectorStore | None = None,
         notifier: Notifier[T] | None = None,
@@ -58,6 +59,7 @@ class Backend(CompositeResource, Generic[T]):
         super().__init__()
         self.metadata_store = self.register_disposable(metadata_store)
         self.codec = codec
+        self.data_type = data_type
         self.blob_store = self.register_disposable(blob_store) if blob_store else None
         self.vector_store = self.register_disposable(vector_store) if vector_store else None
         self.notifier: Notifier[T] = self.register_disposable(notifier or SubjectNotifier())
@@ -87,6 +89,13 @@ class Backend(CompositeResource, Generic[T]):
         return loader
 
     def append(self, obs: Observation[T]) -> Observation[T]:
+        # Validate payload type matches stream type
+        if self.data_type is not object and not isinstance(obs._data, self.data_type):
+            raise TypeError(
+                f"Stream expects {self.data_type.__qualname__}, got {type(obs._data).__qualname__}"
+            )
+        obs.data_type = self.data_type
+
         # Scalars are stored inline in the metadata value column — skip blob
         is_scalar = isinstance(obs._data, (int, float))
 
@@ -135,11 +144,14 @@ class Backend(CompositeResource, Generic[T]):
         return self._iterate_snapshot(query)
 
     def _attach_loaders(self, it: Iterator[Observation[T]]) -> Iterator[Observation[T]]:
-        """Attach lazy blob loaders to observations from the metadata store."""
+        """Attach lazy blob loaders and data_type to observations from the metadata store."""
         if self.blob_store is None:
-            yield from it
+            for obs in it:
+                obs.data_type = self.data_type
+                yield obs
             return
         for obs in it:
+            obs.data_type = self.data_type
             if obs._loader is None and isinstance(obs._data, type(_UNLOADED)):
                 obs._loader = self._make_loader(obs.id)
             yield obs
@@ -237,6 +249,7 @@ class Backend(CompositeResource, Generic[T]):
     def serialize(self) -> dict[str, Any]:
         """Serialize the fully-resolved backend config to a dict."""
         return {
+            "data_type": f"{self.data_type.__module__}.{self.data_type.__qualname__}",
             "codec_id": codec_id(self.codec),
             "eager_blobs": self.eager_blobs,
             "metadata_store": self.metadata_store.serialize()
