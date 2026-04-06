@@ -17,10 +17,13 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
+
+if TYPE_CHECKING:
+    from dimos.protocol.pubsub.impl.lcmpubsub import Topic
 
 MsgT = TypeVar("MsgT")
-TopicT = TypeVar("TopicT")
+TopicT = TypeVar("TopicT", bound="Topic")
 MsgT_co = TypeVar("MsgT_co", covariant=True)
 TopicT_co = TypeVar("TopicT_co", covariant=True)
 

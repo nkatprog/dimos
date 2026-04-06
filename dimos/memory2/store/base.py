@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar
 
 from dimos.core.resource import CompositeResource
 from dimos.memory2.backend import Backend
@@ -97,7 +97,7 @@ class Store(Configurable[StoreConfig], CompositeResource):
 
     @staticmethod
     def _resolve_codec(
-        payload_type: type[Any] | None, raw_codec: Codec[Any] | str | None
+        payload_type: type[object] | None, raw_codec: Codec[object] | str | None
     ) -> Codec[Any]:
         if isinstance(raw_codec, Codec):
             return raw_codec
@@ -111,7 +111,7 @@ class Store(Configurable[StoreConfig], CompositeResource):
         return codec_for(payload_type)
 
     def _create_backend(
-        self, name: str, payload_type: type[Any] | None = None, **config: Any
+        self, name: str, payload_type: type[object] | None = None, **config: Any
     ) -> Backend[Any]:
         """Create a Backend for the named stream. Called once per stream name."""
         codec = self._resolve_codec(payload_type, config.pop("codec", None))
@@ -155,7 +155,7 @@ class Store(Configurable[StoreConfig], CompositeResource):
             resolved = {**self.config.model_dump(exclude_none=True), **overrides}
             backend = self._create_backend(name, payload_type, **resolved)
             self._streams[name] = Stream(source=backend)
-        return cast("Stream[T]", self._streams[name])
+        return self._streams[name]
 
     def list_streams(self) -> list[str]:
         """Return names of all streams in this store."""

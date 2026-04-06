@@ -30,7 +30,6 @@ from dimos.core.module import ModuleBase, ModuleSpec, is_module_type
 from dimos.core.module_coordinator import ModuleCoordinator
 from dimos.core.stream import In, Out
 from dimos.core.transport import LCMTransport, PubSubTransport, pLCMTransport
-from dimos.protocol.pubsub.impl.lcmpubsub import LCM
 from dimos.record.record_replay import RecordReplay
 from dimos.spec.utils import Spec, is_spec, spec_annotation_compliance, spec_structural_compliance
 from dimos.utils.generic import short_id
@@ -510,10 +509,7 @@ class Blueprint:
         patched = self.disabled_modules(*modules_to_disable)
         coordinator = patched.build(cli_config_overrides)
 
-        # Start playback in background — publishes to LCM so other modules receive data
-        lcm = LCM()
-        lcm.start()
-        recording.play(pubsub=lcm, speed=speed)
+        recording.play(speed=speed)
 
         return coordinator
 

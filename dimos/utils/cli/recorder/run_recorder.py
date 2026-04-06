@@ -27,6 +27,7 @@ Usage::
 from __future__ import annotations
 
 from collections import deque
+from pathlib import Path
 import time
 from typing import Any
 
@@ -36,6 +37,7 @@ from textual.color import Color
 from textual.containers import Horizontal
 from textual.widgets import DataTable, Footer, Header, Static
 
+from dimos.record.record_replay import RecordReplay
 from dimos.utils.cli import theme
 
 # Braille sparkline constants (same as dtop)
@@ -222,11 +224,11 @@ class RecorderApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        from dimos.protocol.pubsub.impl.lcmpubsub import LCMPubSubBase
+        from dimos.protocol.pubsub.impl.lcmpubsub import LCM
         from dimos.record import RecordReplay
         from dimos.utils.cli.lcmspy.lcmspy import GraphLCMSpy
 
-        self._lcm = LCMPubSubBase()
+        self._lcm = LCM()
 
         # Live topic discovery via LCM spy (same as lcmspy tool)
         self._spy = GraphLCMSpy(graph_log_window=0.5)
@@ -302,8 +304,8 @@ class RecorderApp(App[None]):
         if self._recorder.is_recording:
             self._recorder.stop_recording()
         else:
-            filt = self._selected if self._selected else None
-            self._recorder.start_recording([self._lcm], topic_filter=filt)
+            topics = self._selected_topics() if self._selected else self._all_topics()
+            self._recorder.start_recording([self._lcm], topics=topics)
 
     async def action_stop_all(self) -> None:
         if self._recorder is None:
@@ -348,6 +350,27 @@ class RecorderApp(App[None]):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _all_topics(self) -> list[Any]:
+        """All discovered topics from the spy."""
+        from dimos.protocol.pubsub.impl.lcmpubsub import Topic as LCMTopic
+
+        if not self._spy:
+            return []
+        return [LCMTopic.from_channel_str(ch) for ch in self._spy.topic]
+
+    def _selected_topics(self) -> list[Any]:
+        """Map selected stream names back to LCM Topics via the spy."""
+        from dimos.protocol.pubsub.impl.lcmpubsub import Topic as LCMTopic
+        from dimos.record.record_replay import topic_to_stream_name
+
+        if not self._spy:
+            return []
+        return [
+            LCMTopic.from_channel_str(ch)
+            for ch in self._spy.topic
+            if topic_to_stream_name(ch) in self._selected
+        ]
 
     def _start_playback(self) -> None:
         if self._recorder is None or self._lcm is None:

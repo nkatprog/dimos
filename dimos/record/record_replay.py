@@ -37,7 +37,7 @@ Usage::
 """
 
 import asyncio
-from collections.abc import Callable, Collection, Container
+from collections.abc import Callable, Collection
 from contextlib import suppress
 import heapq
 import logging
@@ -45,14 +45,17 @@ import math
 import re
 import sys
 import time
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 
 import rerun as rr
 
 from dimos.memory2.store.sqlite import SqliteStore
+from dimos.memory2.stream import Stream
 from dimos.protocol.pubsub.impl.lcmpubsub import Topic
-from dimos.protocol.pubsub.spec import AllPubSub
+from dimos.protocol.pubsub.spec import PubSub
 from dimos.protocol.service.spec import Service
+from dimos.types.timestamped import Timestamped
+from dimos.visualization.rerun.bridge import RerunConvertible, is_rerun_multi
 
 if sys.version_info >= (3, 11):
     from typing import Self
@@ -76,10 +79,10 @@ def topic_to_stream_name(channel: str) -> str:
 class StreamInfo(TypedDict):
     name: str
     count: int
-    start: float
-    end: float
-    duration: float
-    type: str
+    start: NotRequired[float]
+    end: NotRequired[float]
+    duration: NotRequired[float]
+    type: NotRequired[str]
 
 
 class RecordReplay:
@@ -98,10 +101,10 @@ class RecordReplay:
 
         self._recording = False
         self._unsubscribes: list[Callable[[], None]] = []
-        self._topic_filter: Container[str] | None = None
+        self._ts_offsets: dict[str, float] = {}
 
         self._resume = asyncio.Event()
-        self._play_task: asyncio.Task | None = None
+        self._play_task: asyncio.Task[None] | None = None
         self._play_speed = 1.0
         self._position = 0.0
         self._pubsub = None
@@ -130,47 +133,48 @@ class RecordReplay:
 
     def start_recording(
         self,
-        pubsubs: Collection[AllPubSub[Any, Any]],
-        topic_filter: Container[str] | None = None,
+        pubsubs: Collection[PubSub[Topic, object]],
+        topics: Collection[Topic],
     ) -> None:
-        """Start recording messages from the given pubsubs.
-
-        Accepts any ``AllPubSub`` (LCM, SHM, etc).
-        """
+        """Start recording messages from the given pubsubs."""
         if self._recording:
             raise RuntimeError("Already recording")
         self._recording = True
-        self._topic_filter = topic_filter
 
         for pubsub in pubsubs:
             if isinstance(pubsub, Service):
                 pubsub.start()
-            unsub = pubsub.subscribe_all(self._on_message)
-            self._unsubscribes.append(unsub)
+            for topic in topics:
+                unsub = pubsub.subscribe(topic, self._on_message)
+                self._unsubscribes.append(unsub)
 
         logger.info("Recording started on %d pubsub(s)", len(pubsubs))
 
     def stop_recording(self) -> None:
-        """Stop recording."""
         if not self._recording:
             return
         self._recording = False
         for unsub in self._unsubscribes:
             unsub()
         self._unsubscribes.clear()
+        self._ts_offsets.clear()
         logger.info("Recording stopped")
 
-    def _on_message(self, msg: bytes, topic: Topic) -> None:
+    def _on_message(self, msg: object, topic: Topic) -> None:
         stream_name = topic_to_stream_name(topic.pattern)
 
-        if self._topic_filter is not None and stream_name not in self._topic_filter:
-            return
+        ts: float | None = None
+        if isinstance(msg, Timestamped) and msg.ts:
+            # Record the time offset on first message and then offset all messages
+            # by the same amount. This allows recording live channels and replayed
+            # channels together with consistent timestamps.
+            if stream_name not in self._ts_offsets:
+                self._ts_offsets[stream_name] = time.time() - msg.ts
+            ts = msg.ts + self._ts_offsets[stream_name]
 
         s = self._store.stream(stream_name, type(msg))
-        s.append(msg, ts=time.time())
+        s.append(msg, ts=ts)
 
-        # Persist the full channel string (with #type) in the registry
-        # so playback can reconstruct the lcm_type for decoding.
         reg = self._store._registry.get(stream_name)
         if reg and "channel" not in reg:
             reg["channel"] = str(topic)
@@ -191,7 +195,7 @@ class RecordReplay:
         t_min = math.inf
         t_max = -math.inf
         for name in streams:
-            s = self._store.stream(name)
+            s: Stream[object] = self._store.stream(name)
             if s.exists():
                 t0, t1 = s.get_time_range()
                 t_min = min(t_min, t0)
@@ -209,7 +213,7 @@ class RecordReplay:
         """Return per-stream metadata: name, count, time range, type."""
         result = []
         for name in self._store.list_streams():
-            s = self._store.stream(name)
+            s: Stream[object] = self._store.stream(name)
             info: StreamInfo = {"name": name, "count": s.count()}
             if info["count"] > 0:
                 t0, t1 = s.get_time_range()
@@ -262,7 +266,7 @@ class RecordReplay:
         counter = 0  # tiebreaker for heapq
 
         for name in self._store.list_streams():
-            s = self._store.stream(name)
+            s: Stream[object] = self._store.stream(name)
             it = iter(s.after(start_ts - 0.001))
             try:
                 obs = next(it)
@@ -352,7 +356,7 @@ class RecordReplay:
 
         total = 0
         for name in self._store.list_streams():
-            s = self._store.stream(name)
+            s: Stream[object] = self._store.stream(name)
             total += s.delete_range(abs_start, abs_end)
         return total
 
