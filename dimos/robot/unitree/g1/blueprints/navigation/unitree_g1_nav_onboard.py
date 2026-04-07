@@ -62,6 +62,7 @@ unitree_g1_nav_onboard = (
             lidar_ip=os.getenv("LIDAR_IP", "192.168.123.120"),
             mount=G1.internal_odom_offsets["mid360_link"],
             map_freq=1.0,
+            config="lio_autonomy.yaml",
         ),
         smart_nav(
             use_simple_planner=True,
@@ -91,9 +92,9 @@ unitree_g1_nav_onboard = (
                 "two_way_drive": False,
             },
             simple_planner={
-                "cell_size": 0.3,
-                "obstacle_height_threshold": 0.1,
-                "inflation_radius": 0.1,
+                "cell_size": 0.2,
+                "obstacle_height_threshold": 0.16,
+                "inflation_radius": 0.2,
                 "lookahead_distance": 2.0,
                 "replan_rate": 5.0,
                 "replan_cooldown": 2.0,
