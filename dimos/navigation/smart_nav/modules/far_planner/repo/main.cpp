@@ -342,9 +342,9 @@ static Point3D ProjectWaypointFromObstacles(
         return waypoint;
     }
 
-    // Build KD-tree for collision checking
-    pcl::KdTreeFLANN<PCLPoint> obs_kdtree;
-    obs_kdtree.setInputCloud(local_obs);
+    // Build KD-tree from cropped surround obs (matches original kdtree_viewpoint_obs_cloud_)
+    PointKdTreePtr local_kdtree(new pcl::KdTreeFLANN<PCLPoint>());
+    local_kdtree->setInputCloud(local_obs);
 
     const float step = FARUtil::kNearDist;
     const float collision_radius = FARUtil::kNearDist / 2.0f + FARUtil::kLeafSize;
@@ -353,15 +353,13 @@ static Point3D ProjectWaypointFromObstacles(
     // Ray-trace outward from the node along surf_dir (matches original ray tracing)
     Point3D start_p = waypoint + surf_dir * step;
     float ray_dist = step;
-    PCLPoint query;
-    query.x = start_p.x; query.y = start_p.y; query.z = start_p.z;
-    bool is_occupied = static_cast<int>(FARUtil::PointInXCounter(start_p, collision_radius, FARUtil::kdtree_new_cloud_)) > collision_threshold;
+    bool is_occupied = static_cast<int>(FARUtil::PointInXCounter(start_p, collision_radius, local_kdtree)) > collision_threshold;
     waypoint = start_p;
 
     while (!is_occupied && ray_dist < free_dist) {
         start_p = start_p + surf_dir * step;
         ray_dist += step;
-        is_occupied = static_cast<int>(FARUtil::PointInXCounter(start_p, collision_radius, FARUtil::kdtree_new_cloud_)) > collision_threshold;
+        is_occupied = static_cast<int>(FARUtil::PointInXCounter(start_p, collision_radius, local_kdtree)) > collision_threshold;
         if (ray_dist < maxR) {
             waypoint = start_p;
         }
@@ -729,6 +727,10 @@ int main(int argc, char** argv) {
                 FARUtil::RemoveNanInfPoints(terrain_ext_pcl);
                 FARUtil::ExtractFreeAndObsCloud(terrain_ext_pcl, free_cloud, obs_cloud);
                 have_new_clouds = true;
+                // Remove known dynamic obstacles before storing in grid (original line 733)
+                if (!FARUtil::IsStaticEnv) {
+                    FARUtil::RemoveOverlapCloud(obs_cloud, FARUtil::stack_dyobs_cloud_, true);
+                }
                 map_handler.UpdateObsCloudGrid(obs_cloud);
                 map_handler.UpdateFreeCloudGrid(free_cloud);
                 map_handler.UpdateTerrainHeightGrid(free_cloud, terrain_height_cloud);
@@ -743,6 +745,9 @@ int main(int argc, char** argv) {
                 FARUtil::RemoveNanInfPoints(terrain_pcl);
                 FARUtil::ExtractFreeAndObsCloud(terrain_pcl, free_cloud, obs_cloud);
                 have_new_clouds = true;
+                if (!FARUtil::IsStaticEnv) {
+                    FARUtil::RemoveOverlapCloud(obs_cloud, FARUtil::stack_dyobs_cloud_, true);
+                }
                 map_handler.UpdateObsCloudGrid(obs_cloud);
                 map_handler.UpdateFreeCloudGrid(free_cloud);
                 map_handler.UpdateTerrainHeightGrid(free_cloud, terrain_height_cloud);
@@ -821,13 +826,17 @@ int main(int argc, char** argv) {
                     *new_obs_cloud += *dyobs_cloud;
                     FARUtil::FilterCloud(new_obs_cloud, voxel_dim);
                 }
+                // Accumulate dynamic obstacles with time decay (original line 768)
+                FARUtil::StackCloudByTime(dyobs_cloud, FARUtil::stack_dyobs_cloud_, FARUtil::kObsDecayTime, nh);
                 FARUtil::cur_dyobs_cloud_ = dyobs_cloud;
             } else {
                 scan_handler.SetSurroundObsCloud(surround_obs, false);
             }
 
-            // Update KD-trees (original line 772-773)
-            FARUtil::UpdateKdTrees(new_obs_cloud);
+            // Accumulate new observations with time decay, then update KD-trees
+            // (original lines 772-773: StackCloudByTime + UpdateKdTrees(stack_new_cloud_))
+            FARUtil::StackCloudByTime(new_obs_cloud, FARUtil::stack_new_cloud_, FARUtil::kNewDecayTime, nh);
+            FARUtil::UpdateKdTrees(FARUtil::stack_new_cloud_);
 
             const NodePtrStack& nav_graph = dynamic_graph.GetNavGraph();
 
