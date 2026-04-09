@@ -16,10 +16,11 @@
 
 from __future__ import annotations
 
-import threading
 from unittest.mock import MagicMock, patch
 
-from dimos.manipulation.manipulation_module import ManipulationState
+import pytest
+
+from dimos.core.module import ModuleBase
 from dimos.manipulation.pick_and_place_module import PickAndPlaceModule
 from dimos.msgs.geometry_msgs.Vector3 import Vector3
 
@@ -39,46 +40,31 @@ def _make_det_object(
     return obj
 
 
-def _make_module() -> PickAndPlaceModule:
-    """Create a PickAndPlaceModule with mocked __init__."""
-    with patch.object(PickAndPlaceModule, "__init__", lambda self: None):
-        module = PickAndPlaceModule.__new__(PickAndPlaceModule)
-        module._state = ManipulationState.IDLE
-        module._lock = threading.Lock()
-        module._error_message = ""
-        module._robots = {}
-        module._planned_paths = {}
-        module._planned_trajectories = {}
-        module._world_monitor = None
-        module._planner = None
-        module._kinematics = None
-        module._coordinator_client = None
-        module._detection_snapshot = []
-        module._last_pick_pose = None
-        return module
+@pytest.fixture
+def module() -> PickAndPlaceModule:
+    """Create a PickAndPlaceModule with heavy base init (RPC, config) patched out."""
+    with patch.object(ModuleBase, "__init__", lambda self, config_args: None):
+        return PickAndPlaceModule()
 
 
 class TestFindObjectInDetections:
     """Test object lookup logic in detection snapshot."""
 
-    def test_find_by_exact_name(self):
-        module = _make_module()
+    def test_find_by_exact_name(self, module):
         det = _make_det_object(name="cup")
         module._detection_snapshot = [det]
 
         result = module._find_object_in_detections("cup")
         assert result is det
 
-    def test_find_by_partial_name(self):
-        module = _make_module()
+    def test_find_by_partial_name(self, module):
         det = _make_det_object(name="red cup")
         module._detection_snapshot = [det]
 
         result = module._find_object_in_detections("cup")
         assert result is det
 
-    def test_find_by_object_id(self):
-        module = _make_module()
+    def test_find_by_object_id(self, module):
         det = _make_det_object(object_id="abc12345")
         module._detection_snapshot = [det]
 
@@ -86,15 +72,13 @@ class TestFindObjectInDetections:
         result = module._find_object_in_detections("anything", object_id="abc1")
         assert result is det
 
-    def test_find_missing_returns_none(self):
-        module = _make_module()
+    def test_find_missing_returns_none(self, module):
         module._detection_snapshot = [_make_det_object(name="bottle")]
 
         result = module._find_object_in_detections("keyboard")
         assert result is None
 
-    def test_empty_snapshot_returns_none(self):
-        module = _make_module()
+    def test_empty_snapshot_returns_none(self, module):
         module._detection_snapshot = []
 
         result = module._find_object_in_detections("cup")
@@ -146,8 +130,7 @@ class TestGraspHeuristics:
 class TestPlaceBack:
     """Test place_back guard logic."""
 
-    def test_place_back_no_pick_pose_errors(self):
-        module = _make_module()
+    def test_place_back_no_pick_pose_errors(self, module):
         module._last_pick_pose = None
 
         result = module.place_back()
