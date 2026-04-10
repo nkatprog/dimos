@@ -89,7 +89,7 @@ except (ImportError, RuntimeError):
 logger = logging.getLogger(__name__)
 
 
-class M20Connection(Module, spec.Camera, spec.Pointcloud, LidarSpec, IMUSpec, OdometrySpec):
+class M20Connection(Module, LidarSpec, IMUSpec, OdometrySpec):
     """Deep Robotics M20 quadruped connection.
 
     When rclpy is available (GOS), operates in Navigation Mode with

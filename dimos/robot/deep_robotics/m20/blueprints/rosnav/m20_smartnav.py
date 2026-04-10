@@ -30,10 +30,8 @@ Data flow:
 
 from dimos.core.blueprints import autoconnect
 from dimos.core.global_config import global_config
-from dimos.navigation.cmd_vel_mux import CmdVelMux
-from dimos.navigation.smart_nav.main import smart_nav_rerun_config
+from dimos.navigation.smart_nav.main import smart_nav, smart_nav_rerun_config
 from dimos.navigation.smart_nav.modules.click_to_goal.click_to_goal import ClickToGoal
-from dimos.navigation.smart_nav.modules.pgo.pgo import PGO
 from dimos.robot.deep_robotics.m20.blueprints.rosnav.m20_rerun import (
     camera_info_override,
     m20_rerun_blueprint,
@@ -43,6 +41,7 @@ from dimos.robot.deep_robotics.m20.connection import m20_connection
 from dimos.robot.deep_robotics.m20.rosnav_docker import M20ROSNav, m20_ros_nav
 from dimos.visualization.vis_module import vis_module
 
+m20_height_clearance = 0.47
 
 m20_smartnav = (
     autoconnect(
@@ -50,12 +49,45 @@ m20_smartnav = (
             ip=global_config.robot_ip,
             enable_ros=False,
             enable_lidar=False,
-            lidar_height=0.47,
+            lidar_height=m20_height_clearance,
         ),
-        m20_ros_nav(),
-        PGO.blueprint(),
-        ClickToGoal.blueprint(),
-        CmdVelMux.blueprint(),
+        smart_nav(
+            use_simple_planner=True,
+            vehicle_height=m20_height_clearance,
+            # path_follower={"omni_dir_goal_threshold": 0.0},
+            terrain_analysis={
+                "obstacle_height_threshold": 0.01,
+                "ground_height_threshold": 0.01,
+            },
+            local_planner={
+                # "max_speed": 2.0,
+                # "autonomy_speed": 2.0,
+                # "obstacle_height_threshold": 0.05,
+                # "freeze_ang": 180.0,
+                # "two_way_drive": False,
+            },
+            path_follower={
+                # "max_speed": 1.6,
+                # "autonomy_speed": 1.6,
+                # "max_acceleration": 3.5,
+                # "slow_down_distance_threshold": 0.5,
+                # "omni_dir_goal_threshold": 0.5,
+                "two_way_drive": False,
+            },
+            simple_planner={
+                "cell_size": 0.3,
+                "obstacle_height_threshold": 0.20,
+                "inflation_radius": 0.4,
+                "lookahead_distance": 2.0,
+                "replan_rate": 5.0,
+                "replan_cooldown": 2.0,
+            },
+            far_planner={
+                "sensor_range": 15.0,
+                "is_static_env": False,
+                "converge_dist": 1.5,
+            },
+        ),
         vis_module(
             viewer_backend=global_config.viewer,
             rerun_config=smart_nav_rerun_config(
