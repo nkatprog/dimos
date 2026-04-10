@@ -64,6 +64,9 @@ color_check.to_svg("assets/plot_colors.svg")
 
 
 
+
+
+
 ![output](assets/plot_colors.svg)
 
 named colors can also be used explicitly. when you pin a series to one of
@@ -85,23 +88,6 @@ p.add(Series(ts=xs, values=[math.sin(2 * x) for x in xs]))
 p.add(HLine(y=0, style=Style.dashed, opacity=0.5, color="#ff0000"))
 p.to_svg("assets/plot_named.svg")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -145,6 +131,9 @@ plot.add(
 
 plot.to_svg("assets/plot_robot_data.svg")
 ```
+
+
+
 
 
 
@@ -249,25 +238,6 @@ plot.to_svg("assets/plot_plantness_brightness.svg")
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ![output](assets/plot_plantness_brightness.svg)
 
 We see that stuff isn't embedded below some minimum brightness.
@@ -291,74 +261,19 @@ plot.to_svg("assets/plot_plantness_gap_fill.svg")
 ```
 
 
-
-
-
-
-
 ![output](assets/plot_plantness_gap_fill.svg)
 
-Looks better, these are two or three very obvious peaks, I'm curious let's see what was captured then.
-
-
-```python session=robotdata
-from dimos.memory2.vis.utils import mosaic
-from dimos.memory2.vis.plot.elements import VLine
-
-def peak_image(relative_t: float, tolerance: float = 10.0):
-    window = list(plantness_query_cached.at_relative(relative_t, tolerance=tolerance))
-    peak = max(window, key=lambda o: o.data)
-    return images.at(peak.ts).first()
-
-image1 = peak_image(40, tolerance=10)
-image2 = peak_image(249, tolerance=20)
-image3 = peak_image(270, tolerance=20)
-
-plot = Plot()
-
-plot.add(
-    plantness_query_cached.transform(normalize()),
-    label="plant-ness",
-    color=color.green,
-    gap_fill=0.0,
-    connect=7.5
-)
-
-plot.add(VLine(image1.ts, color=color.red))
-plot.add(VLine(image2.ts, color=color.red))
-plot.add(VLine(image3.ts, color=color.red))
-
-plot.to_svg("assets/plot_plantness_marked.svg")
-
-m = mosaic([image1, image2, image3])
-m.data.save("assets/plants.png")
-```
-
-
-![output](assets/plot_plantness_marked.svg)
-
-2 plants and one false positive :) in production we'd further filter false positives out by a VLM
-
-![output](assets/plants.png)
-
-
-Here we were guessing peaks by matching timestamps in the graph, but there is a better way!
-
-# Auto-detecting peaks
-
-Picking peaks by eye is fine for a one-off, but we can feed the stream through
-the `peaks` transform and let it find them for us. It runs `scipy.signal.find_peaks`
-under the hood, filters by topological prominence, and tags each detected peak
-with its prominence on `obs.tags["peak_prominence"]`.
+Looks better, these are some very obvious peaks, I'm curious let's see what was captured then.
 
 ```python session=robotdata
 from dimos.memory2.transform import peaks
-
+from dimos.memory2.vis.plot.elements import VLine
+from dimos.memory2.vis.utils import mosaic
 
 # Mark each detected peak with a VLine and grab the image at that moment
 plot = Plot()
 plot.add(
-    plantness_query_cached,
+    plantness_query_cached.transform(normalize()),
     label="plant-ness",
     color=color.green,
     connect=7.5,
