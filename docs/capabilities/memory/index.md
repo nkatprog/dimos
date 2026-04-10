@@ -15,8 +15,6 @@ from dimos.memory2.vis.space.elements import Point
 </details>
 
 
-
-
 we init our recording, investigate available streams
 
 ```python session=mem

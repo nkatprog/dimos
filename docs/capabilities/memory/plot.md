@@ -1,13 +1,7 @@
 
 # color cycle
 
-fourteen curves with no explicit color. the auto-cycle yields colors in this
-order: the curated six (`color.blue`, `color.red`, `color.yellow`,
-`color.teal`, `color.purple`, `color.orange`), then six gap-subdivided
-extensions (`color.green`, `color.magenta`, `color.indigo`, `color.cyan`,
-`color.vermilion`, `color.amber`), and after that an unbounded golden-angle
-hue walk anchored on the average lightness/saturation of the named palette.
-curves 13 and 14 cross into that fallback.
+You add streams, system auto assigns colors
 
 ```python session=plot output=none
 import math
@@ -26,26 +20,11 @@ for i in range(14):
     amp = rng.uniform(0.6, 1.4)
     offset = i * 0.5  # vertical separation so curves don't overlap
     ys = [amp * math.sin(freq * x + phase) + offset for x in xs]
+
     color_check.add(Series(ts=xs, values=ys, label=f"curve {i + 1}"))
 
 color_check.to_svg("assets/plot_colors.svg")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ![output](assets/plot_colors.svg)
 
@@ -68,34 +47,11 @@ p.add(Series(ts=xs, values=[math.sin(2 * x) for x in xs]))
 p.add(HLine(y=0, style=Style.dashed, opacity=0.5, color="#ff0000"))
 p.to_svg("assets/plot_named.svg")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ![output](assets/plot_named.svg)
 
 # speed plot
+
+you can assign different axes to different time series, label them etc
 
 ```python session=robotdata output=none
 from dimos.memory2.store.sqlite import SqliteStore
@@ -131,13 +87,6 @@ plot.add(
 
 plot.to_svg("assets/plot_robot_data.svg")
 ```
-
-
-
-
-
-
-
 
 
 ![output](assets/plot_robot_data.svg)
@@ -229,15 +178,11 @@ plot.to_svg("assets/plot_doorness_brightness.svg")
 ```
 
 
-
-
-
-
 ![output](assets/plot_doorness_brightness.svg)
 
 We see that stuff isn't embedded below some minimum brightness.
 
-Let's now fill the gaps in our semantic graph a bit, looks super ugly above, we will tell plotter to consider unmapped values as zero
+Let's now fill the gaps in our semantic graph a bit, looks super ugly above, we will tell plotter to consider unmapped values as zero and connect values that are within 7.5 seconds
 
 ```python session=robotdata
 
@@ -253,8 +198,5 @@ plot.add(
 plot.to_svg("assets/plot_doorness_gap_fill.svg")
 
 ```
-
-
-
 
 ![output](assets/plot_doorness_gap_fill.svg)
