@@ -27,46 +27,6 @@ color_check.to_svg("assets/plot_colors.svg")
 ```
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 ![output](assets/plot_colors.svg)
 
 named colors can also be used explicitly. when you pin a series to one of
@@ -131,29 +91,6 @@ plot.add(
 
 plot.to_svg("assets/plot_robot_data.svg")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 ![output](assets/plot_robot_data.svg)
 
