@@ -36,6 +36,7 @@ def split_joint_name(joint_name: str) -> tuple[str, str]:
 class HardwareType(Enum):
     MANIPULATOR = "manipulator"
     BASE = "base"
+    WHOLE_BODY = "whole_body"
 
 
 @dataclass(frozen=True)
@@ -134,6 +135,22 @@ def make_twist_base_joints(
     return [f"{hardware_id}/{s}" for s in suffixes]
 
 
+def make_humanoid_joints(hardware_id: HardwareId, dof: int = 29) -> list[JointName]:
+    """Create joint names for a humanoid whole-body controller.
+
+    Default is 29 DOF (Unitree G1 layout), but the ``dof`` argument lets
+    you override for other humanoids (e.g., dof=18 for R1Pro upper body).
+
+    Args:
+        hardware_id: The hardware identifier (e.g., ``"g1"``, ``"r1pro"``).
+        dof: Total number of motors (default: 29).
+
+    Returns:
+        List of joint names like ``["g1/motor0", "g1/motor1", …]``.
+    """
+    return [f"{hardware_id}/motor{i}" for i in range(dof)]
+
+
 __all__ = [
     "TWIST_SUFFIX_MAP",
     "HardwareComponent",
@@ -143,6 +160,7 @@ __all__ = [
     "JointState",
     "TaskName",
     "make_gripper_joints",
+    "make_humanoid_joints",
     "make_joints",
     "make_twist_base_joints",
     "split_joint_name",
