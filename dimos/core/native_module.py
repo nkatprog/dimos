@@ -195,6 +195,7 @@ class NativeModule(Module):
             cmd=" ".join(cmd),
             cwd=cwd,
         )
+
         # fix bad-close and leaked process issues
         def _child_preexec() -> None:
             """Ensure child is killed when parent dies, and isolate from terminal signals."""

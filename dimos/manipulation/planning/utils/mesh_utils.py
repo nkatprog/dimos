@@ -87,7 +87,7 @@ def prepare_urdf_for_drake(
     cache_path = _CACHE_DIR / f"v3_{hash_paths([str(urdf_path)])}_{config_hash}" / urdf_path.stem
     cache_path.mkdir(parents=True, exist_ok=True)
     cached_urdf = cache_path / f"{urdf_path.stem}.urdf"
-    
+
     # Check cache
     if cached_urdf.exists():
         logger.debug(f"Using cached URDF: {cached_urdf}")
