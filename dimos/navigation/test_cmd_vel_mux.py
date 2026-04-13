@@ -27,14 +27,11 @@ from dimos.msgs.geometry_msgs.Vector3 import Vector3
 from dimos.navigation.cmd_vel_mux import CmdVelMux, CmdVelMuxConfig
 
 
-def _make_mux(cooldown: float = 0.1, linear_scale: float = 1.0) -> Any:
+def _make_mux(cooldown: float = 0.1) -> Any:
     """Build a CmdVelMux with mocked output streams. __del__ cleans up the timer."""
     with patch.object(CmdVelMux, "__init__", lambda self: None):
         mux = cast("Any", CmdVelMux.__new__(CmdVelMux))
-    mux.config = CmdVelMuxConfig(
-        tele_cooldown_sec=cooldown,
-        tele_linear_scale=linear_scale,
-    )
+    mux.config = CmdVelMuxConfig(tele_cooldown_sec=cooldown)
     mux._teleop_active = False
     mux._lock = threading.Lock()
     mux._timer = None
@@ -91,18 +88,12 @@ class TestTeleop:
         mux._on_teleop(_twist(lx=0.5, az=0.1))
         mux.cmd_vel.publish.assert_called_once()
 
-    def test_tele_linear_scale_applied(self) -> None:
-        mux = _make_mux(linear_scale=0.5)
-        mux._on_teleop(_twist(lx=1.0))
-        published = mux.cmd_vel.publish.call_args[0][0]
-        assert published.linear.x == 0.5
-
-    def test_tele_linear_scale_of_one_skips_copy(self) -> None:
-        mux = _make_mux(linear_scale=1.0)
+    def test_teleop_forwards_msg_unchanged(self) -> None:
+        """Mux is a passthrough for teleop — scaling lives in the source module."""
+        mux = _make_mux()
         msg = _twist(lx=0.7)
         mux._on_teleop(msg)
-        published = mux.cmd_vel.publish.call_args[0][0]
-        assert published is msg  # no unnecessary allocation when scale == 1
+        assert mux.cmd_vel.publish.call_args[0][0] is msg
 
 
 class TestEndTeleop:
@@ -137,7 +128,3 @@ class TestConfigDefaults:
     def test_cooldown_default(self) -> None:
         config = CmdVelMuxConfig()
         assert config.tele_cooldown_sec == 1.0
-
-    def test_linear_scale_default(self) -> None:
-        config = CmdVelMuxConfig()
-        assert config.tele_linear_scale == 1.0

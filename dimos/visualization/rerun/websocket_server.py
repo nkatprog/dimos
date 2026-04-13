@@ -35,6 +35,7 @@ import logging
 import threading
 from typing import Any
 
+from pydantic import BaseModel
 import websockets
 
 from dimos.core.core import rpc
@@ -54,12 +55,33 @@ def _handshake_noise_filter(record: logging.LogRecord) -> bool:
     return not ("opening handshake failed" in msg or "did not receive a valid HTTP request" in msg)
 
 
+class CmdVelScaling(BaseModel):
+    """Per-dimension multipliers applied to outgoing teleop cmd_vel twists.
+
+    ``x``/``y``/``z`` scale ``linear.x``/``linear.y``/``linear.z``.
+    ``roll``/``pitch``/``yaw`` scale ``angular.x``/``angular.y``/``angular.z``
+    (ROS convention: roll around X, pitch around Y, yaw around Z).
+
+    Defaults are all ``1.0`` — identity passthrough. Set to ``0.0`` to
+    lock out a dimension entirely, or to a fraction (e.g. ``0.3``) to
+    cap the operator's effective speed on that axis.
+    """
+
+    x: float = 1.0
+    y: float = 1.0
+    z: float = 1.0
+    roll: float = 1.0
+    pitch: float = 1.0
+    yaw: float = 1.0
+
+
 class Config(ModuleConfig):
     # Intentionally binds 0.0.0.0 by default so the viewer can connect from
     # any machine on the network (the typical robot deployment scenario).
     host: str = "0.0.0.0"
     port: int = 3030
     start_timeout: float = 10.0  # seconds to wait for the server to bind
+    cmd_vel_scaling: CmdVelScaling = CmdVelScaling()
 
 
 class RerunWebSocketServer(Module):
@@ -217,16 +239,17 @@ class RerunWebSocketServer(Module):
             self.clicked_point.publish(pt)
 
         elif msg_type == "twist":
+            s = self.config.cmd_vel_scaling
             twist = Twist(
                 linear=Vector3(
-                    float(msg.get("linear_x", 0)),
-                    float(msg.get("linear_y", 0)),
-                    float(msg.get("linear_z", 0)),
+                    float(msg.get("linear_x", 0)) * s.x,
+                    float(msg.get("linear_y", 0)) * s.y,
+                    float(msg.get("linear_z", 0)) * s.z,
                 ),
                 angular=Vector3(
-                    float(msg.get("angular_x", 0)),
-                    float(msg.get("angular_y", 0)),
-                    float(msg.get("angular_z", 0)),
+                    float(msg.get("angular_x", 0)) * s.roll,
+                    float(msg.get("angular_y", 0)) * s.pitch,
+                    float(msg.get("angular_z", 0)) * s.yaw,
                 ),
             )
             logger.debug(f"RerunWebSocketServer: twist → {twist}")

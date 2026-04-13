@@ -40,7 +40,6 @@ logger = setup_logger()
 
 class CmdVelMuxConfig(ModuleConfig):
     tele_cooldown_sec: float = 1.0
-    tele_linear_scale: float = 1.0
 
 
 class CmdVelMux(Module):
@@ -48,11 +47,11 @@ class CmdVelMux(Module):
 
     When teleop input arrives, stop_movement is published so downstream
     modules (planner, explorer) can cancel their active goals.
-    
+
     config.tele_cooldown_sec
         nav_cmd_vel will be ignored for tele_cooldown_sec seconds after
         the last teleop command
-        
+
         dev notes: each new tele_cmd_vel message restarts the cooldown
         so under continuous teleop (e.g. 50 Hz joystick) the cooldown
         is never actually reached; it only fires once the operator stops.
@@ -155,12 +154,6 @@ class CmdVelMux(Module):
             self.stop_movement.publish(Bool(data=True))
             logger.info("Teleop active — published stop_movement")
 
-        s = self.config.tele_linear_scale
-        if s != 1.0:
-            msg = Twist(
-                linear=[msg.linear.x * s, msg.linear.y * s, msg.linear.z],
-                angular=[msg.angular.x, msg.angular.y, msg.angular.z],
-            )
         self.cmd_vel.publish(msg)
 
     def _end_teleop(self, expected_gen: int) -> None:

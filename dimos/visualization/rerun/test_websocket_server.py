@@ -135,8 +135,11 @@ def _collect(received: list[Any], done: threading.Event) -> Any:
     return _cb
 
 
-def _make_module(port: int = _TEST_PORT) -> RerunWebSocketServer:
-    return RerunWebSocketServer(port=port)
+def _make_module(port: int = _TEST_PORT, cmd_vel_scaling: Any = None) -> RerunWebSocketServer:
+    kwargs: dict[str, Any] = {"port": port}
+    if cmd_vel_scaling is not None:
+        kwargs["cmd_vel_scaling"] = cmd_vel_scaling
+    return RerunWebSocketServer(**kwargs)
 
 
 def _wait_for_server(port: int, timeout: float = 3.0) -> None:
@@ -348,6 +351,62 @@ class TestNonClickMessages:
         assert len(received) == 1
         tw = received[0]
         assert abs(tw.linear.x - 0.5) < 1e-9
+        assert abs(tw.angular.z - 0.8) < 1e-9
+
+    def test_cmd_vel_scaling_applied_per_dimension(self) -> None:
+        """cmd_vel_scaling multiplies each component independently."""
+        from dimos.visualization.rerun.websocket_server import CmdVelScaling
+
+        mod = _make_module(
+            cmd_vel_scaling=CmdVelScaling(x=0.5, y=2.0, z=0.0, roll=1.0, pitch=3.0, yaw=0.25)
+        )
+        mod.start()
+        _wait_for_server(_TEST_PORT)
+
+        received: list[Any] = []
+        done = threading.Event()
+        mod.tele_cmd_vel.subscribe(_collect(received, done))
+
+        with MockViewerPublisher(f"ws://127.0.0.1:{_TEST_PORT}/ws") as pub:
+            pub.send_twist(1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+            pub.flush()
+
+        done.wait(timeout=2.0)
+        mod.stop()
+
+        assert len(received) == 1
+        tw = received[0]
+        assert abs(tw.linear.x - 0.5) < 1e-9
+        assert abs(tw.linear.y - 2.0) < 1e-9
+        assert abs(tw.linear.z - 0.0) < 1e-9  # z locked out
+        assert abs(tw.angular.x - 1.0) < 1e-9  # roll
+        assert abs(tw.angular.y - 3.0) < 1e-9  # pitch
+        assert abs(tw.angular.z - 0.25) < 1e-9  # yaw
+
+    def test_cmd_vel_scaling_default_is_identity(self) -> None:
+        """Default CmdVelScaling() must pass twists through untouched."""
+        mod = _make_module()
+        mod.start()
+        _wait_for_server(_TEST_PORT)
+
+        received: list[Any] = []
+        done = threading.Event()
+        mod.tele_cmd_vel.subscribe(_collect(received, done))
+
+        with MockViewerPublisher(f"ws://127.0.0.1:{_TEST_PORT}/ws") as pub:
+            pub.send_twist(0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+            pub.flush()
+
+        done.wait(timeout=2.0)
+        mod.stop()
+
+        assert len(received) == 1
+        tw = received[0]
+        assert abs(tw.linear.x - 0.3) < 1e-9
+        assert abs(tw.linear.y - 0.4) < 1e-9
+        assert abs(tw.linear.z - 0.5) < 1e-9
+        assert abs(tw.angular.x - 0.6) < 1e-9
+        assert abs(tw.angular.y - 0.7) < 1e-9
         assert abs(tw.angular.z - 0.8) < 1e-9
 
     def test_stop_publishes_zero_twist_on_tele_cmd_vel(self) -> None:
