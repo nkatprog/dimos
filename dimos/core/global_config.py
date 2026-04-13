@@ -16,6 +16,7 @@ from functools import cached_property
 import re
 from typing import Literal, TypeAlias
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from dimos.mapping.occupancy.path_map import NavigationStrategy
@@ -59,6 +60,19 @@ class GlobalConfig(BaseSettings):
         extra="ignore",
         frozen=True,
     )
+
+    @model_validator(mode="after")
+    def validate_structural_map_config(self) -> "GlobalConfig":
+        if self.structural_write_threshold <= 0:
+            raise ValueError("structural_write_threshold must be > 0")
+
+        if self.structural_clear_threshold >= 0:
+            raise ValueError("structural_clear_threshold must be < 0")
+
+        if self.live_map_retention_sec < 0:
+            raise ValueError("live_map_retention_sec must be >= 0")
+
+        return self
 
     @cached_property
     def unitree_connection_type(self) -> str:
