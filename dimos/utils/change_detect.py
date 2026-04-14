@@ -141,14 +141,23 @@ def _resolve_paths(paths: Sequence[PathEntry], cwd: str | Path | None = None) ->
     return sorted(files)
 
 
+_HASH_CHUNK_SIZE = 1 << 20  # 1 MiB
+
+
 def _hash_files(files: list[Path]) -> str:
-    """Compute an aggregate xxhash digest over the sorted file list."""
+    """Compute an aggregate xxhash digest over the sorted file list.
+
+    Files are streamed in 1 MiB chunks so large files don't get loaded into
+    memory all at once.
+    """
     h = xxhash.xxh64()
     for fpath in files:
         try:
             # Include the path so additions/deletions/renames are detected
             h.update(str(fpath).encode())
-            h.update(fpath.read_bytes())
+            with open(fpath, "rb") as f:
+                while chunk := f.read(_HASH_CHUNK_SIZE):
+                    h.update(chunk)
         except (OSError, PermissionError):
             logger.warning("Cannot read file for hashing", path=str(fpath))
     return h.hexdigest()
