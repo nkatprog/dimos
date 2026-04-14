@@ -75,7 +75,7 @@ RPC_POOL_MAX_WORKERS = 50  # upstream default
 #   "default": 1 Hz (upstream behavior)
 #   "slow":    0.1 Hz (every 10s)
 #   "once":    publish once on start, then exit thread
-CAMERA_INFO_MODE = "skip"  # "default" | "slow" | "once" | "skip"
+CAMERA_INFO_MODE = "once"  # "default" | "slow" | "once" | "skip"
 
 
 # ------------------------------------------------------------------
@@ -85,7 +85,7 @@ CAMERA_INFO_MODE = "skip"  # "default" | "slow" | "once" | "skip"
 # worker is a full Python process = ~150MB RSS + forkserver overhead.
 # None = leave at blueprint default (unitree-go2-basic sets 4 via
 # global_config(n_workers=4)).
-N_WORKERS: int | None = 1
+N_WORKERS: int | None = None  # use blueprint default (7 for unitree-go2)
 
 
 # ------------------------------------------------------------------
@@ -155,7 +155,7 @@ REPLAY_PREFETCH_SIZE = 5  # number of items to prefetch ahead
 # Every odom message triggers 3 TF transforms published via LCM.
 # During --viewer=none replay, nobody subscribes to TF. Pure waste.
 # Controlled via env var DIMOS_SKIP_TF=1 → checked in GO2Connection._publish_tf.
-ENABLE_SKIP_TF = True
+ENABLE_SKIP_TF = False  # navigation planners need TF
 
 
 # ------------------------------------------------------------------
@@ -165,7 +165,7 @@ ENABLE_SKIP_TF = True
 # bench, nobody subscribes. Encoding + broadcast is pure overhead.
 # Keeps stream subscription (so exit-on-eof works) but no-ops the publish.
 # Controlled via env var DIMOS_SKIP_SENSOR_PUBLISH=1.
-ENABLE_SKIP_SENSOR_PUBLISH = True
+ENABLE_SKIP_SENSOR_PUBLISH = False  # navigation needs lidar/odom
 
 
 # ------------------------------------------------------------------
@@ -175,7 +175,7 @@ ENABLE_SKIP_SENSOR_PUBLISH = True
 # During replay these are no-ops but sleep(3) delays TTFM.
 # Controlled via env var DIMOS_SKIP_ROBOT_INIT=1.
 ENABLE_SKIP_ROBOT_INIT = True
-ENABLE_SKIP_CMDVEL_SUB = True
+ENABLE_SKIP_CMDVEL_SUB = False  # navigation/patrol needs cmd_vel
 ENABLE_DISABLE_GC = True
 ENABLE_REPLAY_ONLY = True
 
@@ -186,8 +186,8 @@ ENABLE_REPLAY_ONLY = True
 # Replay is time-paced (emits at recorded timestamps). Higher speed = shorter
 # wall time = less idle polling overhead. Fixed work still processed fully.
 # Controlled via env var DIMOS_REPLAY_SPEED=<float>.
-ENABLE_REPLAY_SPEED = True
-REPLAY_SPEED = 1000.0
+ENABLE_REPLAY_SPEED = False  # navigation planners need real-time pacing
+REPLAY_SPEED = 1.0
 
 
 # ------------------------------------------------------------------

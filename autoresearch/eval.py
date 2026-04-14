@@ -52,10 +52,10 @@ BASE_REPLAY_CMD = [
     "--exit-on-eof",
     "--replay-dir=unitree_go2_bigoffice",
     "run",
-    "unitree-go2-basic",
+    "unitree-go2",
 ]
 
-DEFAULT_TIMEOUT = 420  # 7 minutes — safety cap; full replay is ~5 min
+DEFAULT_TIMEOUT = 600  # 10 minutes — safety cap; unitree-go2 is heavier
 
 
 @dataclass
