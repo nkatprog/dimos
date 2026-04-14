@@ -43,7 +43,13 @@ from dimos.msgs.geometry_msgs.Vector3 import Vector3
 from dimos.msgs.sensor_msgs.CameraInfo import CameraInfo
 from dimos.msgs.sensor_msgs.Image import Image, ImageFormat
 from dimos.msgs.sensor_msgs.PointCloud2 import PointCloud2
-from dimos.robot.unitree.connection import UnitreeWebRTCConnection
+import os as _os_boot
+if _os_boot.environ.get("DIMOS_REPLAY_ONLY") == "1":
+    # Skip heavy WebRTC imports — ReplayConnection stands alone.
+    class UnitreeWebRTCConnection:  # type: ignore[no-redef]
+        pass
+else:
+    from dimos.robot.unitree.connection import UnitreeWebRTCConnection
 from dimos.utils.data import get_data
 from dimos.utils.decorators.decorators import simple_mcache
 from dimos.utils.testing.replay import TimedSensorReplay, TimedSensorStorage
