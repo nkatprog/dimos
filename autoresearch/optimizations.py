@@ -267,6 +267,8 @@ def apply() -> dict:
     if ENABLE_REPLAY_ONLY:
         env["DIMOS_REPLAY_ONLY"] = "1"
 
+    env["MALLOC_ARENA_MAX"] = "1"
+
     if ENABLE_REPLAY_SPEED:
         env["DIMOS_REPLAY_SPEED"] = str(REPLAY_SPEED)
 
