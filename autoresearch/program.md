@@ -44,25 +44,42 @@ bash run.sh --skip-profile       # skip py-spy profiling step
 ```
 
 **What you CAN do:**
-- Edit `optimizations.py` only. The `apply()` function returns a dict with:
+- Edit `optimizations.py` — the primary knob file. The `apply()` function
+  returns a dict with:
   - `cli_args` — extra CLI flags inserted before the `run` subcommand
     (e.g. `--n-workers=2`, `--log-level=WARNING`).
   - `env` — extra env vars for the subprocess (e.g. `OMP_NUM_THREADS=1`).
   - `startup_code` — Python code written to `_patches/sitecustomize.py` and
     injected via `PYTHONPATH`. Runs before `dimos` imports — monkey-patch
     module-level constants, thread-pool sizes, poll timeouts, etc.
+- Make **surgical DimOS source edits** gated behind env vars so that
+  `optimizations.py` can toggle them. Source edits must be:
+  - Small (< 20 lines per file)
+  - Gated behind `os.environ.get("DIMOS_*")` checks (no-op when unset)
+  - Limited to the `unitree-go2-basic` replay path
+  - Non-breaking for live robot / rerun / other blueprints
+
+**Existing source-level gates (already wired):**
+- `DIMOS_SKIP_WEBSOCKET_VIS=1` — skip WebsocketVisModule in blueprint
+- `DIMOS_SKIP_CLOCK_SYNC=1` — skip ClockSyncConfigurator in blueprint
+- `DIMOS_LAZY_ASYNCIO=1` — lazy asyncio loop creation in ModuleBase
+- `DIMOS_REPLAY_PREFETCH=N` — prefetch N pickle files in background thread
 
 **What you CANNOT do:**
 - Modify `eval.py` — it's the ground-truth harness.
 - Install new packages or add dependencies.
-- Modify DimOS source files to "fix" things. If a knob is hardcoded, patch
-  it via `startup_code` monkey-patching, not by editing the `dimos/` tree.
+- Make source edits that aren't gated behind env vars.
 - Weaken the metric (skip the run, fake the timing output).
 - Commit to `main` or `dev`. Stay on `ruthwik/autoresearch` (or a
   sub-branch). Never force-push.
 
-**Goal: minimize `SCORE = user + sys` CPU seconds** over one full replay
-pass, without breaking the LCM pipeline.
+**Goals (multi-score, tracked independently):**
+- **Primary:** minimize `SCORE = user + sys` CPU seconds
+- **TTFM:** minimize time to first message (startup latency)
+- **PEAK_MEMORY_MB:** minimize peak RSS across process tree
+- **CTX_SWITCHES:** minimize context switches (thread/process overhead)
+
+All over one full replay pass, without breaking the LCM pipeline.
 
 ## Known harness limitations
 
@@ -91,13 +108,17 @@ Each `eval.py` run prints a summary to stdout and appends one JSON line to
 ```
 ==================================================
 SCORE: 45.23
+TTFM: 8.50
 VALIDATION: PASS
 REAL: 12.34
 USER: 30.10
 SYS: 15.13
+PEAK_CPU_PCT: 450.0
 PEAK_MEMORY_MB: 2600.0
 AVG_THREADS: 351.9
 IO_READ_MB: 527.6
+IO_WRITE_MB: 12.3
+CTX_SWITCHES: 150000
 ==================================================
 ```
 
@@ -131,8 +152,9 @@ jq -c 'select(.status=="keep") | {score, desc}' results.jsonl
    - Sanity-check secondaries (`AVG_THREADS`, `PEAK_MEMORY_MB`,
      `IO_READ_MB`) haven't collapsed to zero — a broken pipeline can still
      "PASS".
-   - If sane: `git commit -am "<one-line hypothesis> score=<X>s"`, mark
-     the record `status=keep`.
+   - Verify `TTFM` and `PEAK_MEMORY_MB` haven't regressed significantly.
+   - If sane: `git commit -am "<one-line hypothesis> score=<X>s ttfm=<Y>s"`,
+     mark the record `status=keep`.
 8. If `SCORE >= best_score`: revert the edit
    (`git checkout -- optimizations.py` if not yet committed, or
    `git reset --hard HEAD~1` if committed), mark `status=discard`.
@@ -154,11 +176,19 @@ previous near-misses.
 
 ## Known hot paths
 
+**Monkey-patchable (knobs 1-6 in optimizations.py):**
 - `lcmservice._lcm_loop` — 50ms polling timeout, runs per module instance
 - `ModuleBase.__init__` — creates 50-worker thread pool per module
 - `connection.publish_camera_info` — 1 Hz busy-wait loop in daemon thread
+- BLAS/OpenMP thread counts — numpy/torch spawn per-core threads
+- Log verbosity — INFO-level formatter CPU + stdout volume
+
+**Source-gated (knobs 7-10, env-var controlled):**
+- WebsocketVisModule — full web server (Uvicorn + SocketIO) with zero clients
+- ClockSyncConfigurator — NTP sync during replay (no real robot)
+- Per-module asyncio event loop — each module spawns its own loop thread
+- LegacyPickleStore sequential I/O — one pickle file at a time, no prefetch
 - LCM serialization/deserialization overhead
-- Per-module asyncio event loop (could share across modules)
 
 ## Starting point
 

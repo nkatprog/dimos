@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import platform
 from typing import Any
 
@@ -139,15 +140,17 @@ elif global_config.viewer.startswith("rerun"):
 else:
     with_vis = _transports_base
 
-unitree_go2_basic = (
-    autoconnect(
-        with_vis,
-        GO2Connection.blueprint(),
-        WebsocketVisModule.blueprint(),
-    )
-    .global_config(n_workers=4, robot_model="unitree_go2")
-    .configurators(ClockSyncConfigurator())
-)
+_include_websocket_vis = os.environ.get("DIMOS_SKIP_WEBSOCKET_VIS") != "1"
+_include_clock_sync = os.environ.get("DIMOS_SKIP_CLOCK_SYNC") != "1"
+
+_modules = [with_vis, GO2Connection.blueprint()]
+if _include_websocket_vis:
+    _modules.append(WebsocketVisModule.blueprint())
+
+unitree_go2_basic = autoconnect(*_modules).global_config(n_workers=4, robot_model="unitree_go2")
+
+if _include_clock_sync:
+    unitree_go2_basic = unitree_go2_basic.configurators(ClockSyncConfigurator())
 
 __all__ = [
     "unitree_go2_basic",

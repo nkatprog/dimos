@@ -55,7 +55,7 @@ BASE_REPLAY_CMD = [
     "unitree-go2-basic",
 ]
 
-DEFAULT_TIMEOUT = 300  # 5 minutes — safety cap; full replay is ~4 min
+DEFAULT_TIMEOUT = 420  # 7 minutes — safety cap; full replay is ~5 min
 
 
 @dataclass
@@ -64,11 +64,13 @@ class BenchmarkResult:
     real: float = 0.0
     user: float = 0.0
     sys: float = 0.0
+    ttfm: float = 0.0  # time to first message (seconds from process start)
     peak_cpu_pct: float = 0.0
     peak_memory_mb: float = 0.0
     avg_threads: float = 0.0
     total_io_read_mb: float = 0.0
     total_io_write_mb: float = 0.0
+    context_switches: int = 0  # total voluntary + involuntary context switches
     validation: str = "SKIPPED"
     validation_detail: str = ""
 
@@ -154,6 +156,7 @@ class ProcessTreeMonitor:
         total_threads = 0
         total_io_read = 0
         total_io_write = 0
+        total_ctx_switches = 0
 
         for p in procs:
             try:
@@ -167,6 +170,11 @@ class ProcessTreeMonitor:
                     total_io_write += io.write_bytes
                 except (psutil.AccessDenied, AttributeError):
                     pass
+                try:
+                    ctx = p.num_ctx_switches()
+                    total_ctx_switches += ctx.voluntary + ctx.involuntary
+                except (psutil.AccessDenied, AttributeError):
+                    pass
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -176,6 +184,7 @@ class ProcessTreeMonitor:
             "threads": total_threads,
             "io_read_bytes": total_io_read,
             "io_write_bytes": total_io_write,
+            "ctx_switches": total_ctx_switches,
         }
 
 
@@ -268,14 +277,19 @@ def run_benchmark(timeout: int) -> BenchmarkResult:
     thread_samples: list[int] = []
     last_io_read = 0
     last_io_write = 0
+    last_ctx_switches = 0
     timed_out = False
+    ttfm = 0.0  # time to first message
+    ttfm_detected = False
+    initial_io_read = 0
 
     start = time.monotonic()
 
     # Wait for process tree to start up
     time.sleep(5)
     # First sample primes cpu_percent for initial processes
-    monitor.sample()
+    initial_sample = monitor.sample()
+    initial_io_read = initial_sample["io_read_bytes"]
 
     while proc.poll() is None:
         elapsed = time.monotonic() - start
@@ -296,6 +310,14 @@ def run_benchmark(timeout: int) -> BenchmarkResult:
         thread_samples.append(stats["threads"])
         last_io_read = max(last_io_read, stats["io_read_bytes"])
         last_io_write = max(last_io_write, stats["io_write_bytes"])
+        last_ctx_switches = max(last_ctx_switches, stats["ctx_switches"])
+
+        # TTFM: detect first significant I/O activity (replay data being read)
+        # A jump of >1MB from initial indicates replay streams started publishing
+        if not ttfm_detected and (stats["io_read_bytes"] - initial_io_read) > 1_000_000:
+            ttfm = time.monotonic() - start
+            ttfm_detected = True
+            print(f"TTFM: first message detected at {ttfm:.2f}s")
 
         time.sleep(1.0)
 
@@ -323,6 +345,10 @@ def run_benchmark(timeout: int) -> BenchmarkResult:
     print(f"TIMING: user={user:.2f}s sys={sys_:.2f}s wall={real:.2f}s")
     print(f"TIMING: avg_cpu={avg_cpu_pct:.1f}% peak_cpu={peak_cpu:.1f}%")
     print(f"TIMING: score (user+sys) = {user + sys_:.2f}s")
+    if ttfm_detected:
+        print(f"TIMING: ttfm = {ttfm:.2f}s")
+    else:
+        print("TIMING: ttfm = N/A (no I/O activity detected)")
 
     if proc.returncode != 0 and not timed_out:
         print(f"PROCESS EXITED with code {proc.returncode}")
@@ -333,11 +359,13 @@ def run_benchmark(timeout: int) -> BenchmarkResult:
         real=real,
         user=user,
         sys=sys_,
+        ttfm=ttfm if ttfm_detected else -1.0,
         peak_cpu_pct=peak_cpu,
         peak_memory_mb=peak_mem / (1024 * 1024),
         avg_threads=avg_threads,
         total_io_read_mb=last_io_read / (1024 * 1024),
         total_io_write_mb=last_io_write / (1024 * 1024),
+        context_switches=last_ctx_switches,
     )
 
     if timed_out:
@@ -406,6 +434,7 @@ def print_results(result: BenchmarkResult) -> None:
     """Print results in machine-parseable format."""
     print("\n" + "=" * 50)
     print(f"SCORE: {result.score:.2f}")
+    print(f"TTFM: {result.ttfm:.2f}" if result.ttfm >= 0 else "TTFM: N/A")
     print(f"VALIDATION: {result.validation}", end="")
     if result.validation_detail:
         print(f" ({result.validation_detail})", end="")
@@ -418,6 +447,7 @@ def print_results(result: BenchmarkResult) -> None:
     print(f"AVG_THREADS: {result.avg_threads:.1f}")
     print(f"IO_READ_MB: {result.total_io_read_mb:.1f}")
     print(f"IO_WRITE_MB: {result.total_io_write_mb:.1f}")
+    print(f"CTX_SWITCHES: {result.context_switches}")
     print("=" * 50)
 
     # Save to results directory

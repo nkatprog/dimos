@@ -14,7 +14,7 @@
 
 """Optimizations for Go2 basic blueprint CPU usage.
 
-This is the ONLY file the autoresearch agent should edit. `eval.py` imports
+This is the PRIMARY file the autoresearch agent edits. `eval.py` imports
 `apply()` and splices its return value into the replay subprocess.
 
 Design:
@@ -26,6 +26,9 @@ Design:
   `PYTHONPATH`, so it runs before `dimos` imports — that's how we
   monkey-patch module-level constants like `_LCM_LOOP_TIMEOUT` without
   touching the DimOS source tree.
+- Knobs 7-10 control DimOS source-level optimizations that are gated behind
+  env vars / global_config flags so the agent can toggle them without editing
+  DimOS source each time.
 
 Baseline: all `ENABLE_*` flags False → `apply()` returns empty dict-ish
 (no CLI args, no env, no patches). This matches "Re-baseline with a clean
@@ -107,6 +110,45 @@ ENABLE_LOG_REDUCTION = False
 LOG_LEVEL = "INFO"  # "DEBUG" | "INFO" | "WARNING" | "ERROR"
 
 
+# ------------------------------------------------------------------
+# KNOB 7: Skip WebsocketVisModule during replay
+# ------------------------------------------------------------------
+# The WebsocketVisModule spawns a Uvicorn server, SocketIO broadcast loop,
+# and its own asyncio event loop — all serving zero clients during benchmark.
+# When enabled, the blueprint skips this module entirely.
+# Controlled via env var DIMOS_SKIP_WEBSOCKET_VIS=1 → checked in blueprint.
+ENABLE_SKIP_WEBSOCKET_VIS = False
+
+
+# ------------------------------------------------------------------
+# KNOB 8: Skip ClockSyncConfigurator during replay
+# ------------------------------------------------------------------
+# ClockSyncConfigurator runs NTP-like sync at coordinator build time.
+# During replay there's no real robot clock to sync with — pure waste.
+# Controlled via env var DIMOS_SKIP_CLOCK_SYNC=1 → checked in blueprint.
+ENABLE_SKIP_CLOCK_SYNC = False
+
+
+# ------------------------------------------------------------------
+# KNOB 9: Lazy asyncio event loop per module
+# ------------------------------------------------------------------
+# By default, every Module.__init__() eagerly creates a dedicated asyncio
+# event loop + daemon thread. Most modules never use asyncio during replay.
+# When enabled, loops are created lazily on first access.
+# Controlled via env var DIMOS_LAZY_ASYNCIO=1 → checked in module.py.
+ENABLE_LAZY_ASYNCIO = False
+
+
+# ------------------------------------------------------------------
+# KNOB 10: Replay I/O prefetch buffer
+# ------------------------------------------------------------------
+# LegacyPickleStore reads one pickle file at a time, blocking on disk I/O
+# each frame. When enabled, a background thread prefetches the next N items.
+# Controlled via env var DIMOS_REPLAY_PREFETCH=<N> (0=off, default).
+ENABLE_REPLAY_PREFETCH = False
+REPLAY_PREFETCH_SIZE = 5  # number of items to prefetch ahead
+
+
 def _build_startup_code() -> str:
     """Assemble the monkey-patch string injected via sitecustomize.py."""
     lines: list[str] = []
@@ -160,6 +202,18 @@ def apply() -> dict:
         env["OMP_NUM_THREADS"] = str(OMP_NUM_THREADS)
         env["MKL_NUM_THREADS"] = str(MKL_NUM_THREADS)
         env["OPENBLAS_NUM_THREADS"] = str(OPENBLAS_NUM_THREADS)
+
+    if ENABLE_SKIP_WEBSOCKET_VIS:
+        env["DIMOS_SKIP_WEBSOCKET_VIS"] = "1"
+
+    if ENABLE_SKIP_CLOCK_SYNC:
+        env["DIMOS_SKIP_CLOCK_SYNC"] = "1"
+
+    if ENABLE_LAZY_ASYNCIO:
+        env["DIMOS_LAZY_ASYNCIO"] = "1"
+
+    if ENABLE_REPLAY_PREFETCH:
+        env["DIMOS_REPLAY_PREFETCH"] = str(REPLAY_PREFETCH_SIZE)
 
     startup_code = _build_startup_code()
     if startup_code:
