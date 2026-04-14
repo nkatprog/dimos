@@ -15,13 +15,19 @@
       url = "github:leshy/FAST-LIO-NON-ROS/dimos-integration";
       flake = false;
     };
+    lcm-extended = {
+      url = "github:jeff-hykin/lcm_extended";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, livox-sdk, dimos-lcm, fast-lio, ... }:
+  outputs = { self, nixpkgs, flake-utils, livox-sdk, dimos-lcm, fast-lio, lcm-extended, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs { inherit system; };
         livox-sdk2 = livox-sdk.packages.${system}.livox-sdk2;
+        lcm = lcm-extended.packages.${system}.lcm;
 
         livox-common = ../../common;
 
@@ -34,7 +40,7 @@
           nativeBuildInputs = [ pkgs.cmake pkgs.pkg-config ];
           buildInputs = [
             livox-sdk2
-            pkgs.lcm
+            lcm
             pkgs.glib
             pkgs.eigen
             pkgs.pcl
