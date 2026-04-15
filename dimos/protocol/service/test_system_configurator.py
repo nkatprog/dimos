@@ -96,7 +96,7 @@ class TestWriteSysctlInt:
                     ["sudo", "sysctl", "-w", "net.core.rmem_max=67108864"],
                     check=True,
                     text=True,
-                    capture_output=False,
+                    capture_output=True,
                 )
 
 
@@ -338,9 +338,9 @@ class TestBufferConfiguratorMacOS:
         configurator = BufferConfiguratorMacOS()
         with patch("dimos.protocol.service.system_configurator.lcm._read_sysctl_int") as mock_read:
             mock_read.side_effect = [
-                BufferConfiguratorMacOS.TARGET_BUFFER_SIZE,
-                BufferConfiguratorMacOS.TARGET_RECVSPACE,
-                BufferConfiguratorMacOS.TARGET_DGRAM_SIZE,
+                BufferConfiguratorMacOS.TARGET,
+                BufferConfiguratorMacOS.TARGET,
+                BufferConfiguratorMacOS.TARGET,
             ]
             assert configurator.check() is True
             assert configurator.needs == []
@@ -355,7 +355,7 @@ class TestBufferConfiguratorMacOS:
     def test_explanation_lists_needed_changes(self) -> None:
         configurator = BufferConfiguratorMacOS()
         configurator.needs = [
-            ("kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET_BUFFER_SIZE),
+            ("kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET),
         ]
         explanation = configurator.explanation()
         assert "kern.ipc.maxsockbuf" in explanation
@@ -363,14 +363,14 @@ class TestBufferConfiguratorMacOS:
     def test_fix_writes_needed_values(self) -> None:
         configurator = BufferConfiguratorMacOS()
         configurator.needs = [
-            ("kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET_BUFFER_SIZE),
+            ("kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET),
         ]
         with patch(
             "dimos.protocol.service.system_configurator.lcm._write_sysctl_int"
         ) as mock_write:
             configurator.fix()
             mock_write.assert_called_once_with(
-                "kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET_BUFFER_SIZE
+                "kern.ipc.maxsockbuf", BufferConfiguratorMacOS.TARGET
             )
 
 
