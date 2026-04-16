@@ -32,7 +32,7 @@ _SYSCTL_CONF = STATE_DIR / "sysctl.json"
 
 def _load_sysctl_conf() -> dict[str, int]:
     try:
-        return json.loads(_SYSCTL_CONF.read_text())
+        return json.loads(_SYSCTL_CONF.read_text())  # type: ignore[no-any-return]
     except (OSError, json.JSONDecodeError):
         return {}
 
