@@ -16,7 +16,6 @@
 from typing import Any
 
 from reactivex import Observable, create, disposable
-import whisper  # type: ignore[import-untyped]
 
 from dimos.stream.audio.base import (
     AbstractAudioConsumer,
@@ -25,12 +24,29 @@ from dimos.stream.audio.base import (
 from dimos.stream.audio.text.base import AbstractTextEmitter
 from dimos.utils.logging_config import setup_logger
 
+try:
+    import whisper  # type: ignore[import-untyped]
+
+    _USE_FASTER_WHISPER = False
+except ImportError:
+    try:
+        from faster_whisper import WhisperModel  # type: ignore[import-untyped]
+
+        _USE_FASTER_WHISPER = True
+    except ImportError:
+        raise ImportError(
+            "No whisper backend found. "
+            "Install openai-whisper (pip install dimos[whisper]) "
+            "or faster-whisper (pip install dimos[whisper-cpu])."
+        )
+
 logger = setup_logger()
 
 
 class WhisperNode(AbstractAudioConsumer, AbstractTextEmitter):
     """
-    A node that transcribes audio using OpenAI's Whisper model and emits the transcribed text.
+    A node that transcribes audio using OpenAI Whisper or faster-whisper and emits
+    the transcribed text. Prefers openai-whisper if installed, falls back to faster-whisper.
     """
 
     def __init__(
@@ -41,8 +57,15 @@ class WhisperNode(AbstractAudioConsumer, AbstractTextEmitter):
         if modelopts is None:
             modelopts = {"language": "en", "fp16": False}
         self.audio_observable = None
-        self.modelopts = modelopts
-        self.model = whisper.load_model(model)
+
+        if _USE_FASTER_WHISPER:
+            fp16 = modelopts.pop("fp16", False)
+            compute_type = "float16" if fp16 else "int8"
+            self.modelopts = modelopts
+            self.model = WhisperModel(model, device="auto", compute_type=compute_type)
+        else:
+            self.modelopts = modelopts
+            self.model = whisper.load_model(model)
 
     def consume_audio(self, audio_observable: Observable) -> "WhisperNode":  # type: ignore[type-arg]
         """
@@ -73,8 +96,15 @@ class WhisperNode(AbstractAudioConsumer, AbstractTextEmitter):
             # Subscribe to the audio source
             def on_audio_event(event: AudioEvent) -> None:
                 try:
-                    result = self.model.transcribe(event.data.flatten(), **self.modelopts)
-                    observer.on_next(result["text"].strip())
+                    if _USE_FASTER_WHISPER:
+                        segments, _info = self.model.transcribe(
+                            event.data.flatten(), **self.modelopts
+                        )
+                        text = " ".join(seg.text.strip() for seg in segments)
+                    else:
+                        result = self.model.transcribe(event.data.flatten(), **self.modelopts)
+                        text = result["text"].strip()
+                    observer.on_next(text)
                 except Exception as e:
                     logger.error(f"Error processing audio event: {e}")
                     observer.on_error(e)
