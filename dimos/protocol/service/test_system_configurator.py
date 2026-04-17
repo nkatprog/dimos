@@ -357,7 +357,7 @@ class TestBufferConfiguratorMacOS:
     def test_check_uses_saved_config_as_target(self, tmp_path) -> None:
         conf = tmp_path / "sysctl.json"
         user_limit = 32 * 2**20  # 32 MiB
-        conf.write_text(f'{"kern.ipc.maxsockbuf": {user_limit}}')
+        conf.write_text(json.dumps({"kern.ipc.maxsockbuf": user_limit}))
         configurator = BufferConfiguratorMacOS()
         with (
             patch("dimos.protocol.service.system_configurator.lcm._SYSCTL_CONF", conf),
