@@ -169,12 +169,13 @@ def peaks(
     prominence: float = 0.045,
     distance: float = 5.0,
     width: float | None = 0.5,
-) -> FnIterTransformer[float, float]:
+    key: Callable[[Observation[T]], float] | None = None,
+) -> FnIterTransformer[T, T]:
     """Yield only the local-maximum observations, gated by peak shape.
 
-    Runs scipy.signal.find_peaks on ``obs.data`` and emits the qualifying
-    observations in timestamp order. Each yielded observation gets its
-    peak's prominence stashed on ``tags["peak_prominence"]``.
+    Runs scipy.signal.find_peaks on a scalar extracted from each observation
+    and emits the qualifying observations in timestamp order. Each yielded
+    observation gets its peak's prominence stashed on ``tags["peak_prominence"]``.
 
     All parameters are in the natural units of the stream (seconds and
     data-range units), not sample counts. Time-based parameters are
@@ -188,14 +189,20 @@ def peaks(
     - ``distance``: minimum time in seconds between detected peaks.
     - ``width``: minimum peak width in seconds at 50% prominence. Filters
       sub-second noise spikes. Pass ``None`` to disable.
+    - ``key``: callable that extracts the scalar signal from an observation.
+      Defaults to ``obs.data``. Use this when ``obs.data`` isn't the scalar
+      you want to detect peaks on (e.g. image observations with a
+      ``similarity`` metadata field).
     """
     from scipy.signal import find_peaks
 
-    def _peaks(upstream: Iterator[Observation[float]]) -> Iterator[Observation[float]]:
+    key_fn: Callable[[Observation[T]], float] = key if key is not None else (lambda obs: obs.data)  # type: ignore[return-value,assignment]
+
+    def _peaks(upstream: Iterator[Observation[T]]) -> Iterator[Observation[T]]:
         items = list(upstream)
         if len(items) < 3:
             return
-        values = [obs.data for obs in items]
+        values = [key_fn(obs) for obs in items]
 
         # Median sample spacing — used to convert seconds → samples
         # consistently for both `distance` and `width`.

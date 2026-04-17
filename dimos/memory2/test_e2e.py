@@ -139,6 +139,7 @@ class TestImportReplay:
         # Downsample to 2Hz, then embed
         pipeline = (
             video.filter(lambda obs: obs.data.brightness > 0.1)
+            .tap(print)
             .transform(QualityWindow(lambda img: img.sharpness, window=0.5))
             .transform(EmbedImages(clip))
             .save(embedded)

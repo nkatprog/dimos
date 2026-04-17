@@ -27,9 +27,6 @@ color_check.to_svg("assets/plot_colors.svg")
 ```
 
 
-
-
-
 ![output](assets/plot_colors.svg)
 
 named colors can also be used explicitly. when you pin a series to one of
@@ -177,9 +174,6 @@ plot.to_svg("assets/plot_plantness_brightness.svg")
 ```
 
 
-
-
-
 ![output](assets/plot_plantness_brightness.svg)
 We see that stuff isn't embedded below some minimum brightness.
 
@@ -201,7 +195,6 @@ plot.to_svg("assets/plot_plantness_gap_fill.svg")
 
 ```
 
-
 ![output](assets/plot_plantness_gap_fill.svg)
 
 Looks better, these are some very obvious peaks, I'm curious let's see what was captured then.
@@ -211,7 +204,7 @@ from dimos.memory2.transform import peaks
 from dimos.memory2.vis.plot.elements import VLine
 from dimos.memory2.vis.utils import mosaic
 
-peaks = plantness_query_cached.transform(peaks(distance=5.0))
+peaks = plantness_query_cached.transform(peaks(key=lambda obs: obs.similarity, distance=5.0))
 
 for p in peaks:
     print(f"t={p.ts - plantness_similarity.first().ts:6.1f}s score={p.similarity:.3f} prominence={p.tags['peak_prominence']:.3f}")
