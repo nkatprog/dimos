@@ -112,7 +112,7 @@ def _categorize(content: str) -> str | None:
     words = set(re.findall(r"[a-zA-Z]+", content.lower()))
     if "turn" in words:
         return "turn"
-    if words & {"forward", "forwards"}:
+    if words & {"forward", "forwards", "fwd"}:
         return "forward"
     if words & {"back", "backward", "backwards"}:
         return "back"
