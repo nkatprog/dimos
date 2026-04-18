@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 from collections import deque
+import json
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -190,9 +191,12 @@ class ResourceSpyApp(App[None]):
 
     BINDINGS = [("q", "quit"), ("ctrl+c", "quit")]
 
-    def __init__(self, topic_name: str = "/dimos/resource_stats") -> None:
+    def __init__(
+        self, topic_name: str = "/dimos/resource_stats", log_path: str | None = None
+    ) -> None:
         super().__init__()
         self._topic_name = topic_name
+        self._log_file = open(log_path, "a") if log_path else None
         # Warn about missing system config before entering TUI raw mode.
         from dimos.protocol.service.lcmservice import autoconf
 
@@ -216,11 +220,15 @@ class ResourceSpyApp(App[None]):
 
     async def on_unmount(self) -> None:
         self._lcm.stop()
+        if self._log_file:
+            self._log_file.close()
 
     def _on_msg(self, msg: dict[str, Any], _topic: str) -> None:
         with self._lock:
             self._latest = msg
             self._last_msg_time = time.monotonic()
+        if self._log_file:
+            self._log_file.write(json.dumps({"ts": time.time(), **msg}) + "\n")
 
     def _refresh(self) -> None:
         with self._lock:
@@ -485,17 +493,32 @@ def _preview() -> None:
 
 
 def main() -> None:
+    import argparse
     import sys
 
     if "--preview" in sys.argv:
         _preview()
         return
 
-    topic = "/dimos/resource_stats"
-    if len(sys.argv) > 1 and sys.argv[1] == "--topic" and len(sys.argv) > 2:
-        topic = sys.argv[2]
+    parser = argparse.ArgumentParser(
+        prog="dtop", description="Live TUI for per-worker resource stats."
+    )
+    parser.add_argument(
+        "--topic", default="/dimos/resource_stats", help="LCM topic to subscribe to."
+    )
+    parser.add_argument(
+        "--log",
+        nargs="?",
+        const=f"dtop_{time.strftime('%Y%m%d_%H%M%S')}.jsonl",
+        metavar="PATH",
+        help="Log stats to a JSONL file. Uses a timestamped filename if no path is given.",
+    )
+    args = parser.parse_args()
 
-    ResourceSpyApp(topic_name=topic).run()
+    if args.log and args.log == parser.get_default("log"):
+        print(f"Logging to {args.log}")
+
+    ResourceSpyApp(topic_name=args.topic, log_path=args.log).run()
 
 
 if __name__ == "__main__":
