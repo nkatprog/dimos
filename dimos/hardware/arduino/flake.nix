@@ -39,7 +39,7 @@
         dimos_arduino_tools = pkgs.symlinkJoin {
           name = "dimos-arduino-tools";
           paths = [
-            pkgs.arduino-cli
+            pkgs.arduino-cli.pureGoPkg
             pkgs.avrdude
             pkgs.qemu
           ];
@@ -90,7 +90,7 @@
             # runs natively wherever `/lib64/ld-linux-x86-64.so.2`
             # resolves — i.e. every non-NixOS Linux, and NixOS with
             # nix-ld enabled.
-            pkgs.arduino-cli
+            pkgs.arduino-cli.pureGoPkg
             pkgs.avrdude
             pkgs.picocom
             # qemu-system-avr for virtual-Arduino mode.  `pkgs.qemu` builds

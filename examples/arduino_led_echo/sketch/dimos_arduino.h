@@ -28,13 +28,13 @@ typedef struct {
 #endif
 #define DIMOS_NUM_TOPICS 2
 static const dimos_topic_mapping_t _dimos_topic_map[] = {
-    { 1, "led_cmd" },
-    { 2, "led_state" },
+    { 1, "/led_cmd" },
+    { 2, "/led_state" },
 };
 
 /* --- Channel name constants --- */
-#define DIMOS_CHANNEL__LED_CMD "led_cmd"
-#define DIMOS_CHANNEL__LED_STATE "led_state"
+#define DIMOS_CHANNEL__LED_CMD "/led_cmd"
+#define DIMOS_CHANNEL__LED_STATE "/led_state"
 
 /* --- Serial transport + LCM integration --- */
 #include "dimos_lcm_serial.h"
