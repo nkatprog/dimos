@@ -3,7 +3,7 @@
  *
  * This binary is module-agnostic.  It receives topic→LCM channel mappings
  * via CLI args and forwards raw bytes between USB serial and LCM multicast,
- * prepending/stripping the 8-byte LCM fingerprint hash as needed.
+ * passing raw payload bytes through (fingerprint is part of the DSP payload).
  *
  * Usage:
  *   ./arduino_bridge \
@@ -56,10 +56,9 @@
  * lookup maps (and in RawHandler::tm) are never invalidated by reallocation
  * of the containing vector. */
 struct TopicMapping {
-    uint8_t topic_id;
+    uint16_t topic_id;
     std::string lcm_channel;    /* full "name#msg_type" */
     bool is_output;             /* true = Arduino→Host (publish), false = Host→Arduino (subscribe) */
-    std::vector<uint8_t> fingerprint;  /* 8-byte hash, computed at startup */
 };
 
 /* Forward decl — RawHandler body is below the Bridge so it can reference it. */
@@ -85,7 +84,7 @@ struct Bridge {
     lcm::LCM *lcm{nullptr};
     std::map<std::string, int64_t> hash_registry;
 
-    std::map<uint8_t, TopicMapping *> topic_out_map;
+    std::map<uint16_t, TopicMapping *> topic_out_map;
     std::map<std::string, TopicMapping *> topic_in_map;
     std::vector<std::unique_ptr<RawHandler>> raw_handlers;
 
@@ -159,7 +158,7 @@ static void parse_args(Bridge &b, int argc, char **argv)
             b.reconnect_interval = std::atof(argv[++i]);
         } else if ((arg == "--topic_out" || arg == "--topic_in") && i + 2 < argc) {
             auto tm = std::make_unique<TopicMapping>();
-            tm->topic_id = (uint8_t)std::atoi(argv[++i]);
+            tm->topic_id = (uint16_t)std::atoi(argv[++i]);
             tm->lcm_channel = argv[++i];
             tm->is_output = (arg == "--topic_out");
             b.topics.push_back(std::move(tm));
@@ -171,15 +170,12 @@ static void parse_args(Bridge &b, int argc, char **argv)
 }
 
 /* ======================================================================
- * LCM Fingerprint Hash
+ * LCM Fingerprint Hash Registry
  *
- * We need the 8-byte hash for each message type to prepend when publishing
- * and to strip when receiving.  The hash is computed by the LCM-generated
- * C++ type's static method.  Since we're generic, we look up the type name
- * from the channel string ("name#msg_type") and use a registry.
- *
- * For types we don't have compiled in, we use a fallback: read the hash
- * from the first LCM message we receive on that channel.
+ * The 2-byte topic DSP protocol includes the 8-byte LCM fingerprint
+ * INSIDE the DSP payload, so the bridge is a pure passthrough — no
+ * prepending or stripping needed.  We keep the hash registry for
+ * validation and logging purposes.
  * ====================================================================== */
 
 /*
@@ -257,19 +253,8 @@ static std::string extract_topic_name(const std::string &channel)
     return channel.substr(0, pos);
 }
 
-/* Compute 8-byte big-endian fingerprint from hash value */
-static std::vector<uint8_t> hash_to_bytes(int64_t hash)
-{
-    std::vector<uint8_t> bytes(8);
-    uint64_t h = (uint64_t)hash;
-    for (int i = 7; i >= 0; i--) {
-        bytes[i] = (uint8_t)(h & 0xFF);
-        h >>= 8;
-    }
-    return bytes;
-}
-
-static bool resolve_fingerprints(Bridge &b)
+/* Validate that all topic message types are in the hash registry (for logging). */
+static bool validate_topic_types(Bridge &b)
 {
     for (auto &tm : b.topics) {
         std::string msg_type = extract_msg_type(tm->lcm_channel);
@@ -280,7 +265,6 @@ static bool resolve_fingerprints(Bridge &b)
                     msg_type.c_str(), tm->topic_id, tm->lcm_channel.c_str());
             return false;
         }
-        tm->fingerprint = hash_to_bytes(it->second);
     }
     return true;
 }
@@ -393,16 +377,12 @@ static void serial_reader_thread(Bridge &b)
                 fwrite(parser.rx_buf, 1, parser.rx_len, stdout);
                 fflush(stdout);
             } else {
-                /* Data: prepend fingerprint hash and publish to LCM */
+                /* Data: payload already contains [8B fingerprint][data],
+                 * publish directly to LCM as a pure passthrough. */
                 auto it = b.topic_out_map.find(parser.rx_topic);
                 if (it != b.topic_out_map.end()) {
                     TopicMapping *tm = it->second;
-                    /* Build LCM message: 8-byte hash + payload */
-                    int total = 8 + parser.rx_len;
-                    std::vector<uint8_t> lcm_buf(total);
-                    memcpy(lcm_buf.data(), tm->fingerprint.data(), 8);
-                    memcpy(lcm_buf.data() + 8, parser.rx_buf, parser.rx_len);
-                    b.lcm->publish(tm->lcm_channel, lcm_buf.data(), total);
+                    b.lcm->publish(tm->lcm_channel, parser.rx_buf, parser.rx_len);
                 } else {
                     fprintf(stderr, "[bridge] Unknown outbound topic: %u\n", parser.rx_topic);
                 }
@@ -456,16 +436,11 @@ static void send_lcm_to_serial(Bridge &b,
                                const lcm::ReceiveBuffer *rbuf,
                                TopicMapping *tm)
 {
-    /* Strip 8-byte fingerprint hash from LCM data */
+    /* LCM message already contains [8B fingerprint][data].  Pass the
+     * FULL payload (with fingerprint) into the DSP frame — pure passthrough. */
     size_t data_size = (size_t)rbuf->data_size;
-    if (data_size < 8) {
-        fprintf(stderr,
-                "[bridge] Dropping LCM message on %s: size %zu < 8 (no fingerprint)\n",
-                tm->lcm_channel.c_str(), data_size);
-        return;
-    }
-    const uint8_t *payload = (const uint8_t *)rbuf->data + 8;
-    size_t payload_len_raw = data_size - 8;
+    const uint8_t *payload = (const uint8_t *)rbuf->data;
+    size_t payload_len_raw = data_size;
 
     if (payload_len_raw > DSP_MAX_PAYLOAD) {
         fprintf(stderr,
@@ -475,18 +450,20 @@ static void send_lcm_to_serial(Bridge &b,
     }
     uint16_t payload_len = (uint16_t)payload_len_raw;
 
-    /* Build DSP frame header */
+    /* Build DSP frame header: START + TOPIC(2B LE) + LENGTH(2B LE) */
     uint8_t header[DSP_HEADER_SIZE];
     header[0] = DSP_START_BYTE;
-    header[1] = tm->topic_id;
-    header[2] = (uint8_t)(payload_len & 0xFF);
-    header[3] = (uint8_t)((payload_len >> 8) & 0xFF);
+    header[1] = (uint8_t)(tm->topic_id & 0xFF);
+    header[2] = (uint8_t)((tm->topic_id >> 8) & 0xFF);
+    header[3] = (uint8_t)(payload_len & 0xFF);
+    header[4] = (uint8_t)((payload_len >> 8) & 0xFF);
 
-    /* CRC-8/MAXIM over TOPIC + LEN_LO + LEN_HI + PAYLOAD, incremental. */
+    /* CRC-8/MAXIM over TOPIC_LO + TOPIC_HI + LEN_LO + LEN_HI + PAYLOAD, incremental. */
     uint8_t crc = 0x00;
     crc = _dsp_crc8_table[crc ^ header[1]];
     crc = _dsp_crc8_table[crc ^ header[2]];
     crc = _dsp_crc8_table[crc ^ header[3]];
+    crc = _dsp_crc8_table[crc ^ header[4]];
     for (uint16_t k = 0; k < payload_len; k++) {
         crc = _dsp_crc8_table[crc ^ payload[k]];
     }
@@ -572,9 +549,9 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Compute fingerprint hashes */
+    /* Initialize hash registry and validate topic message types */
     init_hash_registry(bridge);
-    if (!resolve_fingerprints(bridge)) {
+    if (!validate_topic_types(bridge)) {
         return 1;
     }
 

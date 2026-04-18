@@ -4,7 +4,7 @@
  * Framed binary protocol for Arduino ↔ Host communication over USB serial.
  *
  * Frame format:
- *   [0xD1] [TOPIC 1B] [LENGTH 2B LE] [PAYLOAD 0-1024B] [CRC8 1B]
+ *   [0xD1] [TOPIC 2B LE] [LENGTH 2B LE] [PAYLOAD 0-1024B] [CRC8 1B]
  *
  * Topic 0 is always DEBUG (UTF-8 text from Serial.print shim).
  * Topics 1..N are data streams, assigned by the generated dimos_arduino.h.
@@ -32,8 +32,8 @@
 
 #define DSP_START_BYTE    0xD1
 #define DSP_TOPIC_DEBUG   0
-#define DSP_HEADER_SIZE   4   /* START + TOPIC + LENGTH(2) */
-#define DSP_OVERHEAD      5   /* HEADER + CRC8 */
+#define DSP_HEADER_SIZE   5   /* START + TOPIC(2) + LENGTH(2) */
+#define DSP_OVERHEAD      6   /* HEADER + CRC8 */
 
 /* Maximum payload size.
  *
@@ -158,7 +158,8 @@ static inline uint8_t dsp_crc8(const uint8_t *data, uint16_t len)
 
 enum dsp_parse_state {
     DSP_WAIT_START,
-    DSP_READ_TOPIC,
+    DSP_READ_TOPIC_LO,
+    DSP_READ_TOPIC_HI,
     DSP_READ_LEN_LO,
     DSP_READ_LEN_HI,
     DSP_READ_PAYLOAD,
@@ -174,7 +175,7 @@ enum dsp_parse_event {
 
 struct dsp_parser {
     enum dsp_parse_state state;
-    uint8_t  rx_topic;
+    uint16_t rx_topic;
     uint16_t rx_len;
     uint16_t rx_payload_pos;
     uint8_t  rx_buf[DSP_MAX_PAYLOAD];
@@ -193,12 +194,17 @@ static inline enum dsp_parse_event dsp_feed_byte(struct dsp_parser *p, uint8_t b
     switch (p->state) {
     case DSP_WAIT_START:
         if (b == DSP_START_BYTE) {
-            p->state = DSP_READ_TOPIC;
+            p->state = DSP_READ_TOPIC_LO;
         }
         return DSP_PARSE_NONE;
 
-    case DSP_READ_TOPIC:
+    case DSP_READ_TOPIC_LO:
         p->rx_topic = b;
+        p->state = DSP_READ_TOPIC_HI;
+        return DSP_PARSE_NONE;
+
+    case DSP_READ_TOPIC_HI:
+        p->rx_topic |= ((uint16_t)b << 8);
         p->state = DSP_READ_LEN_LO;
         return DSP_PARSE_NONE;
 
@@ -225,10 +231,11 @@ static inline enum dsp_parse_event dsp_feed_byte(struct dsp_parser *p, uint8_t b
         return DSP_PARSE_NONE;
 
     case DSP_READ_CRC: {
-        /* CRC-8/MAXIM over TOPIC + LEN_LO + LEN_HI + PAYLOAD, computed
-         * incrementally via the table.  No temporary buffer needed. */
+        /* CRC-8/MAXIM over TOPIC_LO + TOPIC_HI + LEN_LO + LEN_HI + PAYLOAD,
+         * computed incrementally via the table.  No temporary buffer needed. */
         uint8_t crc = 0x00;
-        crc = DSP_CRC_READ(&_dsp_crc8_table[crc ^ p->rx_topic]);
+        crc = DSP_CRC_READ(&_dsp_crc8_table[crc ^ (uint8_t)(p->rx_topic & 0xFF)]);
+        crc = DSP_CRC_READ(&_dsp_crc8_table[crc ^ (uint8_t)((p->rx_topic >> 8) & 0xFF)]);
         crc = DSP_CRC_READ(&_dsp_crc8_table[crc ^ (uint8_t)(p->rx_len & 0xFF)]);
         crc = DSP_CRC_READ(&_dsp_crc8_table[crc ^ (uint8_t)((p->rx_len >> 8) & 0xFF)]);
         for (uint16_t k = 0; k < p->rx_len; k++) {
@@ -362,12 +369,17 @@ inline struct dsp_parser &_dsp_state_ref(void)
 /**
  * Initialize DimOS serial protocol.
  * Call this in setup() before any other dimos_* calls.
+ *
+ * When the LCM serial adapter is used (dimos_lcm_serial.h), that header
+ * provides its own dimos_init() that also initialises the pubsub layer.
  */
+#ifndef DIMOS_LCM_SERIAL_H
 static inline void dimos_init(uint32_t baud)
 {
     _dsp_usart_init(baud);
     dsp_parser_init(&_dsp_state_ref());
 }
+#endif
 
 /**
  * Send a DSP frame.
@@ -376,16 +388,17 @@ static inline void dimos_init(uint32_t baud)
  * @param data   Payload bytes (LCM-encoded for data topics, UTF-8 for debug)
  * @param len    Payload length in bytes
  */
-static inline void dimos_send(enum dimos_topic topic, const uint8_t *data, uint16_t len)
+static inline void dimos_send(uint16_t topic, const uint8_t *data, uint16_t len)
 {
     if (len > DSP_MAX_PAYLOAD) return;
 
-    /* Build header: START, TOPIC, LENGTH (LE) */
+    /* Build header: START, TOPIC (2B LE), LENGTH (2B LE) */
     uint8_t header[DSP_HEADER_SIZE];
     header[0] = DSP_START_BYTE;
-    header[1] = (uint8_t)topic;
-    header[2] = (uint8_t)(len & 0xFF);
-    header[3] = (uint8_t)((len >> 8) & 0xFF);
+    header[1] = (uint8_t)(topic & 0xFF);
+    header[2] = (uint8_t)((topic >> 8) & 0xFF);
+    header[3] = (uint8_t)(len & 0xFF);
+    header[4] = (uint8_t)((len >> 8) & 0xFF);
 
     /* CRC over TOPIC + LENGTH + PAYLOAD */
     uint8_t crc = 0x00;
@@ -511,7 +524,7 @@ private:
     uint8_t _pos = 0;
 
     void _flush() {
-        dimos_send(DSP_TOPIC_DEBUG, _buf, _pos);
+        dimos_send((uint16_t)DSP_TOPIC_DEBUG, _buf, _pos);
         _pos = 0;
     }
 };

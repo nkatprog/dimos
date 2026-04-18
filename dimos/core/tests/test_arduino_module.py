@@ -172,8 +172,9 @@ def test_generate_header_includes_topic_enum_and_message_header(
     assert "DIMOS_TOPIC__TWIST_IN = 2" in text
     # Twist → geometry_msgs/Twist.h
     assert '#include "geometry_msgs/Twist.h"' in text
-    # DSP core always pulled in.
-    assert '#include "dsp_protocol.h"' in text
+    # LCM pubsub layer and serial adapter always pulled in.
+    assert '#include "dimos_lcm_pubsub.h"' in text
+    assert '#include "dimos_lcm_serial.h"' in text
 
 
 def test_generate_header_rejects_non_finite_float(tmp_path: Path) -> None:
@@ -516,14 +517,16 @@ def test_validate_inbound_payload_sizes_skips_non_avr_board() -> None:
 
 
 def test_registry_headers_cover_all_arduino_msgs_files() -> None:
-    """Every .h under arduino_msgs/ must be referenced by the Python
-    registry.  Orphan headers are dead code that still has to be
-    maintained."""
+    """Every header referenced by _KNOWN_TYPE_HEADERS must exist on disk.
+    Extra generated headers (from dimos-lcm codegen) and infrastructure
+    headers (lcm_coretypes_arduino.h, dimos_lcm_pubsub.h) are allowed
+    without registry entries since they are auto-generated dependencies,
+    not user-facing message types."""
     common = _arduino_common_dir()
     on_disk = {str(p.relative_to(common)) for p in common.rglob("*.h")}
     referenced = set(_KNOWN_TYPE_HEADERS.values())
-    orphans = on_disk - referenced
-    assert not orphans, (
-        f"These arduino_msgs headers are not referenced by _KNOWN_TYPE_HEADERS "
-        f"(dead code or missing registry entry): {sorted(orphans)}"
+    missing = referenced - on_disk
+    assert not missing, (
+        f"These headers are referenced by _KNOWN_TYPE_HEADERS but missing "
+        f"on disk: {sorted(missing)}"
     )

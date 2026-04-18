@@ -1,6 +1,6 @@
 /*
  * std_msgs/Int32 — Arduino-compatible LCM C encode/decode.
- * Wire format: 1x int32_t, big-endian = 4 bytes.
+ * Wire format: int32_t = 4 bytes.
  */
 #ifndef DIMOS_ARDUINO_MSG_INT32_H
 #define DIMOS_ARDUINO_MSG_INT32_H
@@ -18,16 +18,31 @@ typedef struct {
 static inline int dimos_msg__Int32__encoded_size(void) { return 4; }
 
 static inline int dimos_msg__Int32__encode(void *buf, int offset, int maxlen,
-                                        const dimos_msg__Int32 *p)
+    const dimos_msg__Int32 *p)
 {
     return __int32_t_encode_array(buf, offset, maxlen, &p->data, 1);
 }
 
-static inline int dimos_msg__Int32__decode(const void *buf, int offset, int maxlen,
-                                        dimos_msg__Int32 *p)
+static inline int dimos_msg__Int32__decode(const void *buf, int offset,
+    int maxlen, dimos_msg__Int32 *p)
 {
     return __int32_t_decode_array(buf, offset, maxlen, &p->data, 1);
 }
+
+/* LCM fingerprint hash — matches C++ Int32::getHash() */
+static inline int64_t dimos_msg__Int32__fingerprint(void) {
+    return (int64_t)3223726276478042686LL;
+}
+
+/* Type descriptor for dimos_lcm_pubsub — include dimos_lcm_pubsub.h first */
+#ifdef DIMOS_LCM_PUBSUB_H
+static const dimos_lcm_type_t dimos_msg__Int32__type = {
+    /* name */          "std_msgs.Int32",
+    /* fingerprint */   (int64_t)3223726276478042686LL,
+    /* encoded_size */  4,
+    /* decode */        (int (*)(const void *, int, int, void *))dimos_msg__Int32__decode
+};
+#endif
 
 #ifdef __cplusplus
 }

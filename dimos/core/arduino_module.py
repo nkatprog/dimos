@@ -590,11 +590,13 @@ class ArduinoModule(NativeModule):
     def _build_topic_enum(self) -> dict[str, int]:
         """Assign topic IDs to streams. Topic 0 is reserved for debug."""
         stream_types = self._get_stream_types()
-        if len(stream_types) > self.MAX_TOPICS:
+        # Topic IDs are uint16_t (2 bytes) with 0 reserved for debug.
+        max_topics = 65534
+        if len(stream_types) > max_topics:
             raise ValueError(
                 f"{type(self).__name__} declares {len(stream_types)} streams, "
-                f"but ArduinoModule supports at most {self.MAX_TOPICS} (topic "
-                f"IDs are uint8_t with 0 reserved for the debug channel). "
+                f"but ArduinoModule supports at most {max_topics} (topic "
+                f"IDs are uint16_t with 0 reserved for the debug channel). "
                 f"Split the module or drop streams."
             )
         topic_enum: dict[str, int] = {}
@@ -725,7 +727,7 @@ class ArduinoModule(NativeModule):
                 )
         sections.append("")
 
-        # Topic enum
+        # Topic enum (still used by bridge CLI args and backward compat)
         sections.append("/* --- Topic enum (shared with C++ bridge) --- */")
         sections.append("enum dimos_topic {")
         sections.append("    DIMOS_TOPIC_DEBUG = 0,")
@@ -736,6 +738,12 @@ class ArduinoModule(NativeModule):
                 f"    DIMOS_TOPIC__{name.upper()} = {tid},  /* {direction}[{msg_type.__name__}] */"
             )
         sections.append("};")
+        sections.append("")
+
+        # LCM pubsub layer (must come before message headers so type
+        # descriptors defined in the message headers can reference it)
+        sections.append("/* --- LCM pubsub layer --- */")
+        sections.append('#include "dimos_lcm_pubsub.h"')
         sections.append("")
 
         # Message type includes
@@ -764,9 +772,50 @@ class ArduinoModule(NativeModule):
                 )
         sections.append("")
 
-        # DSP protocol core
-        sections.append("/* --- DSP protocol core --- */")
-        sections.append('#include "dsp_protocol.h"')
+        # Topic mapping table (channel name ↔ topic ID)
+        # The bridge uses "topic_name#msg_type" as the LCM channel.
+        # For the Arduino side, we use just the topic_name part as the
+        # channel name for the subscribe API.
+        try:
+            topics = self._resolve_topics()
+        except Exception:
+            # During unit tests or when transports aren't wired yet,
+            # fall back to stream names as channel names.
+            topics = {name: name for name in topic_enum}
+        sections.append("/* --- Topic ↔ channel mapping --- */")
+        sections.append("#ifndef DIMOS_TOPIC_MAPPING_DEFINED")
+        sections.append("#define DIMOS_TOPIC_MAPPING_DEFINED")
+        sections.append("typedef struct {")
+        sections.append("    uint16_t    topic_id;")
+        sections.append("    const char *channel;")
+        sections.append("} dimos_topic_mapping_t;")
+        sections.append("#endif")
+        sections.append(f"#define DIMOS_NUM_TOPICS {len(topic_enum)}")
+        sections.append("static const dimos_topic_mapping_t _dimos_topic_map[] = {")
+        for name, tid in topic_enum.items():
+            if name in topics:
+                # Extract channel name (before #) for the Arduino-side API
+                lcm_channel = topics[name]
+                channel_name = lcm_channel.split("#")[0]
+            else:
+                channel_name = name
+            sections.append(f'    {{ {tid}, "{channel_name}" }},')
+        sections.append("};")
+        sections.append("")
+
+        # Channel name constants for user convenience
+        sections.append("/* --- Channel name constants --- */")
+        for name in topic_enum:
+            if name in topics:
+                channel_name = topics[name].split("#")[0]
+            else:
+                channel_name = name
+            sections.append(f'#define DIMOS_CHANNEL__{name.upper()} "{channel_name}"')
+        sections.append("")
+
+        # DSP protocol + LCM serial adapter
+        sections.append("/* --- Serial transport + LCM integration --- */")
+        sections.append('#include "dimos_lcm_serial.h"')
         sections.append("")
 
         # Close header guard
