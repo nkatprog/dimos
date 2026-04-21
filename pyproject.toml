@@ -84,8 +84,14 @@ asyncio_mode = "auto"
 # removed --cov flags so a plain `pytest` run doesn't require pytest-cov to be installed
 # -p no:warnings suppresses deprecation noise from third-party libs during local dev
 # --tb=short gives more concise tracebacks, easier to scan during local iteration
-addopts = "-v -p no:warnings --tb=short"
+# --no-header keeps output a bit cleaner when running frequently during development
+addopts = "-v -p no:warnings --tb=short --no-header"
 
 [tool.coverage.run]
 source = ["src/dimos"]
 omit = ["tests/*"]
+
+[tool.coverage.report]
+# skip files that have 100% coverage to keep the report focused on what needs attention
+skip_covered = true
+show_missing = true
