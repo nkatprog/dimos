@@ -83,7 +83,8 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 # removed --cov flags so a plain `pytest` run doesn't require pytest-cov to be installed
 # -p no:warnings suppresses deprecation noise from third-party libs during local dev
-addopts = "-v -p no:warnings"
+# --tb=short gives more concise tracebacks, easier to scan during local iteration
+addopts = "-v -p no:warnings --tb=short"
 
 [tool.coverage.run]
 source = ["src/dimos"]
